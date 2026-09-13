@@ -1,0 +1,89 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+*~
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Widget Preview related
+.widget_preview/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Installables and crash dumps
+*.apk
+*.aab
+*.ipa
+*.hprof
+
+# Secrets and local env (never commit)
+.env
+.env.*
+!.env.example
+**/key.properties
+
+# Local Claude permissions (machine-specific allowlists)
+.claude/settings.local.json
+
+# GPLv3 behavioral-reference clone. Nested git repo with old OpenCV 3.1
+# binaries and a keystore. Keep it on disk if useful, but do not ship it
+# in this project. See BookScannerRevamp.md.
+/Document-Scanner/
+
+# Fetched OpenCV iOS xcframework (scripts/fetch_opencv_ios.sh). Large;
+# Apache-2.0 OpenCV only — do not copy Document-Scanner binaries here.
+/ios/ThirdParty/
+*.xcframework
+
+# Native scanner_core compile output (source under native/scanner_core stays)
+native/**/build/
+native/**/CMakeFiles/
+native/**/cmake_install.cmake
+native/**/CMakeCache.txt
+native/**/compile_commands.json
+*.o
+*.so
+*.dylib
+
+# Flutter golden / integration failure dumps
+**/failures/
