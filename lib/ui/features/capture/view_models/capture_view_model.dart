@@ -1,17 +1,18 @@
 import 'dart:async';
-import 'dart:ui' show Offset;
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../../data/services/scanner/live_preview_source.dart';
 import '../../../../domain/models/capture_models.dart';
-import '../../../../domain/models/geometry.dart';
 import '../../../../domain/models/project.dart';
 import '../../../../domain/models/provider_info.dart';
 import '../../../../domain/models/scan_page.dart';
 import '../../../../domain/providers/capture_provider.dart';
 import '../../../../domain/repositories/page_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
+import '../../../../domain/repositories/settings_repository.dart';
 import '../../../../domain/use_cases/capture_page_use_case.dart';
 import '../../../../domain/use_cases/process_book_spread_use_case.dart';
 
@@ -25,14 +26,17 @@ class CaptureViewModel extends ChangeNotifier {
     required ProcessBookSpreadUseCase processBookSpreadUseCase,
     required ProjectRepository projectRepository,
     required PageRepository pageRepository,
+    required SettingsRepository settingsRepository,
     this.replacePageId,
+    this.preferredCaptureMode,
     this.resultPreviewHold = const Duration(milliseconds: 900),
     this.onNeedsCropCorrection,
   }) : _captureProvider = captureProvider,
        _capturePageUseCase = capturePageUseCase,
        _processBookSpreadUseCase = processBookSpreadUseCase,
        _projectRepository = projectRepository,
-       _pageRepository = pageRepository;
+       _pageRepository = pageRepository,
+       _settingsRepository = settingsRepository;
 
   final String projectId;
 
@@ -41,20 +45,25 @@ class CaptureViewModel extends ChangeNotifier {
   /// pages — see [captureManually] and [replacementComplete].
   final String? replacePageId;
 
+  /// Home quick-action override (e.g. [CaptureMode.idCard]).
+  final CaptureMode? preferredCaptureMode;
+
   /// How long to hold the processed (cropped/perspective-corrected) page
   /// on screen after enhance finishes, so the user sees the final look
   /// before the live camera returns for the next shot. Tests pass
   /// [Duration.zero] to skip the pause.
   final Duration resultPreviewHold;
 
-  /// Called when a still was saved but no confident page quad was found,
-  /// so the user should adjust corners instead of accepting a fake crop.
+  /// Called when a still was saved but no confident page quad was found.
+  /// Kept for tests/DI; the capture session no longer navigates mid-scan —
+  /// corner correction happens in the post-capture edit flow instead.
   final void Function(String pageId)? onNeedsCropCorrection;
   final CaptureProvider _captureProvider;
   final CapturePageUseCase _capturePageUseCase;
   final ProcessBookSpreadUseCase _processBookSpreadUseCase;
   final ProjectRepository _projectRepository;
   final PageRepository _pageRepository;
+  final SettingsRepository _settingsRepository;
 
   CapturePermissionState _permissionState = CapturePermissionState.unknown;
   CapturePermissionState get permissionState => _permissionState;
@@ -72,6 +81,21 @@ class CaptureViewModel extends ChangeNotifier {
 
   int _pageCount = 0;
   int get pageCount => _pageCount;
+
+  /// First page in sequence order — used by Continue → crop-first flow.
+  Future<String?> firstPageIdOrdered() async {
+    final project = await _projectRepository.getProject(projectId);
+    final all = await _pageRepository.getPages(projectId);
+    if (all.isEmpty) return null;
+    final byId = {for (final p in all) p.id: p};
+    if (project != null && project.pageOrder.isNotEmpty) {
+      for (final id in project.pageOrder) {
+        if (byId.containsKey(id)) return id;
+      }
+    }
+    all.sort((a, b) => a.sequence.compareTo(b.sequence));
+    return all.first.id;
+  }
 
   bool _capturing = false;
   bool get capturing => _capturing;
@@ -105,10 +129,21 @@ class CaptureViewModel extends ChangeNotifier {
   ProjectType? get projectType => _projectType;
 
   PageOrderDirection _pageOrderDirection = PageOrderDirection.leftToRight;
+  BookScanMode _bookScanMode = BookScanMode.twoPageSpread;
 
   int? get previewTextureId => _captureProvider.previewTextureId;
 
   double get previewAspectRatio => _captureProvider.previewAspectRatio;
+
+  /// Plugin-owned preview widget when the adapter supplies one; otherwise
+  /// the screen falls back to [previewTextureId].
+  Widget? get livePreview {
+    final provider = _captureProvider;
+    if (provider is LivePreviewSource) {
+      return (provider as LivePreviewSource).buildLivePreview();
+    }
+    return null;
+  }
 
   FlashMode _flashMode = FlashMode.off;
   FlashMode get flashMode => _flashMode;
@@ -119,11 +154,61 @@ class CaptureViewModel extends ChangeNotifier {
   Offset? _focusIndicator;
   Offset? get focusIndicator => _focusIndicator;
 
-  bool _awaitingQualityOverride = false;
-  bool get awaitingQualityOverride => _awaitingQualityOverride;
-
   String? _shutterHint;
   String? get shutterHint => _shutterHint;
+
+  bool _autoCaptureEnabled = false;
+  bool get autoCaptureEnabled => _autoCaptureEnabled;
+
+  bool _captureFromAuto = false;
+  bool get captureFromAuto => _captureFromAuto;
+
+  bool _awaitingSceneChange = false;
+  int? _stableSinceMs;
+
+  /// Visible Auto dwell so the shutter can show a TapScanner-style timer.
+  /// Short enough for SPEC 9.2, long enough to read 2→1 on the ring.
+  static const _autoCaptureStableMs = 2000;
+
+  CaptureSettings _captureSettings = const CaptureSettings();
+
+  bool _counting = false;
+
+  int _countdownRemaining = 0;
+
+  /// Seconds remaining in an active pre-capture countdown
+  /// ([CaptureSettings.countdownSeconds]), or 0 when none is running.
+  int get countdownRemaining => _countdownRemaining;
+
+  /// 0–1 progress through the Auto stable window while gates stay ready.
+  double get autoCaptureProgress {
+    if (!_autoCaptureEnabled ||
+        _awaitingSceneChange ||
+        _capturing ||
+        replacePageId != null) {
+      return 0;
+    }
+    final since = _stableSinceMs;
+    final analysis = _latestAnalysis;
+    if (since == null || analysis == null) return 0;
+    if (!(analysis.gatesSatisfied && analysis.quad != null)) return 0;
+    final elapsed = analysis.timestampMs - since;
+    return (elapsed / _autoCaptureStableMs).clamp(0.0, 1.0);
+  }
+
+  /// Whole seconds left before Auto fires, or null when not counting.
+  int? get autoCaptureSecondsRemaining {
+    final progress = autoCaptureProgress;
+    if (progress <= 0 || progress >= 1) return null;
+    final since = _stableSinceMs!;
+    final elapsed = _latestAnalysis!.timestampMs - since;
+    final remainingMs = _autoCaptureStableMs - elapsed;
+    return ((remainingMs + 999) ~/ 1000).clamp(1, 99);
+  }
+
+  /// Thumbnail/processed path of the most recently persisted page this session.
+  String? _lastPagePreviewPath;
+  String? get lastPagePreviewPath => _lastPagePreviewPath;
 
   bool _disposed = false;
 
@@ -145,8 +230,12 @@ class CaptureViewModel extends ChangeNotifier {
     _projectType = project?.type;
     _pageOrderDirection =
         project?.metadata.pageOrderDirection ?? PageOrderDirection.leftToRight;
+    _bookScanMode =
+        project?.metadata.bookScanMode ?? BookScanMode.twoPageSpread;
     final pages = await _pageRepository.getPages(projectId);
     _pageCount = pages.length;
+    _captureSettings = (await _settingsRepository.getSettings()).captureSettings;
+    _autoCaptureEnabled = _captureSettings.autoCaptureEnabled;
 
     final status = await Permission.camera.status;
     _permissionState = _mapStatus(status);
@@ -178,9 +267,9 @@ class CaptureViewModel extends ChangeNotifier {
     try {
       final mode = _projectType == ProjectType.book
           ? CaptureMode.bookSpread
-          : CaptureMode.singlePage;
-      _capabilities = await _captureProvider.capabilities();
+          : (preferredCaptureMode ?? CaptureMode.singlePage);
       await _captureProvider.openSession(mode);
+      _capabilities = await _captureProvider.capabilities();
       _sessionOpen = true;
       _analysisSubscription = _captureProvider.analysisStream().listen(
         _onAnalysis,
@@ -189,17 +278,16 @@ class CaptureViewModel extends ChangeNotifier {
     } on ProviderException catch (e) {
       _error = e;
       _notify();
+    } catch (e) {
+      _error = ProviderException(ProviderErrorCategory.unknown, e.toString());
+      _notify();
     }
   }
 
-  /// Deliberate SPEC 17.3 deviation: this used to auto-fire a capture once
-  /// a frame held all quality gates for a stable window. Tried on-device
-  /// and rejected -- the shutter button showed the same "capturing" spinner
-  /// an auto-fired capture used as a manual one, so it visibly locked out
-  /// and spun on its own while the user was still lining up the shot,
-  /// reading as broken rather than helpful. Capture is manual-only now;
-  /// this still records the latest frame for the warning banner and the
-  /// capture frame guide's color.
+  /// Auto-capture when the live quad stays stable (SPEC 5.1/5.2, 17.3).
+  /// Manual mode is a session toggle so the user can line up a shot without
+  /// the shutter firing. Duplicate avoidance: after a capture, wait for the
+  /// scene to become unstable before arming again.
   void _onAnalysis(FrameAnalysis analysis) {
     _latestAnalysis = analysis;
     if (!analysis.focusAcceptable) {
@@ -209,35 +297,98 @@ class CaptureViewModel extends ChangeNotifier {
     } else {
       _shutterHint = null;
     }
+
+    if (_autoCaptureEnabled &&
+        replacePageId == null &&
+        !_capturing &&
+        _sessionOpen) {
+      _maybeAutoCapture(analysis);
+    }
     _notify();
   }
 
-  bool _hasBlockingWarnings(FrameAnalysis? analysis) {
-    if (analysis == null) return false;
-    final warnings = analysis.warnings.where((w) => w != QualityWarning.none);
-    return warnings.isNotEmpty ||
-        !analysis.focusAcceptable ||
-        !analysis.motionBelowThreshold ||
-        !analysis.exposureAcceptable;
+  void _maybeAutoCapture(FrameAnalysis analysis) {
+    final ready = analysis.gatesSatisfied && analysis.quad != null;
+    if (_awaitingSceneChange) {
+      if (!ready) _awaitingSceneChange = false;
+      return;
+    }
+    if (!ready) {
+      _stableSinceMs = null;
+      return;
+    }
+    _stableSinceMs ??= analysis.timestampMs;
+    if (analysis.timestampMs - _stableSinceMs! < _autoCaptureStableMs) {
+      return;
+    }
+    // Continuous capture skips the "wait for an unstable frame" dedup gate
+    // so the next stable window can fire again immediately instead of
+    // requiring the scene to change first (SPEC 6.1's "automatic continuous
+    // capture").
+    _awaitingSceneChange = !_captureSettings.continuousCapture;
+    _stableSinceMs = null;
+    unawaited(captureManually(fromAuto: true));
   }
+
+  /// Ticks [_countdownRemaining] down to 0 once per second
+  /// (SPEC 6.1's "configurable countdown"), notifying listeners each tick so
+  /// the screen can render it. Returns false if the session closed or this
+  /// view model was disposed mid-countdown, in which case the capture must
+  /// not proceed.
+  Future<bool> _runCountdown() async {
+    _counting = true;
+    _countdownRemaining = _captureSettings.countdownSeconds;
+    _notify();
+    while (_countdownRemaining > 0) {
+      await Future<void>.delayed(const Duration(seconds: 1));
+      if (_disposed || !_sessionOpen) {
+        _counting = false;
+        _countdownRemaining = 0;
+        return false;
+      }
+      _countdownRemaining--;
+      _notify();
+    }
+    _counting = false;
+    _notify();
+    return true;
+  }
+
+  void setAutoCaptureEnabled(bool enabled) {
+    _autoCaptureEnabled = enabled;
+    _awaitingSceneChange = false;
+    _stableSinceMs = null;
+    _notify();
+  }
+
+  void toggleAutoCapture() => setAutoCaptureEnabled(!_autoCaptureEnabled);
 
   /// Returns the page(s) produced by this capture: one for a normal
   /// document page, or two (already split, ordered per the project's
   /// [PageOrderDirection]) for a book spread (SPEC 5.2).
-  Future<List<ScanPage>> captureManually({
-    bool bypassQualityGate = false,
-  }) async {
-    if (_capturing || !_sessionOpen) return const [];
-    if (!bypassQualityGate && _hasBlockingWarnings(_latestAnalysis)) {
-      _awaitingQualityOverride = true;
-      _notify();
-      return const [];
+  ///
+  /// Live quality warnings stay on the banner and are stored on the page;
+  /// they do not swallow a shutter tap. SPEC 9.2 requires manual capture on
+  /// every device — on the Galaxy A05 the live analyzer almost always
+  /// reports blur/clipped-edges, so a gate here produced empty Review
+  /// sessions after the user tapped shutter then Done.
+  Future<List<ScanPage>> captureManually({bool fromAuto = false}) async {
+    if (_capturing || !_sessionOpen || _counting) return const [];
+    if (_captureSettings.countdownSeconds > 0) {
+      final proceed = await _runCountdown();
+      if (!proceed) return const [];
     }
-    _awaitingQualityOverride = false;
     _capturing = true;
+    _captureFromAuto = fromAuto;
     _notify();
     try {
-      final still = await _captureProvider.captureStill();
+      final stills = await _captureStills();
+      if (stills.isEmpty) return const [];
+      if (_captureSettings.hapticConfirmation) HapticFeedback.mediumImpact();
+      if (_captureSettings.audioConfirmation) {
+        SystemSound.play(SystemSoundType.click);
+      }
+      final still = stills.first;
       _frozenPreviewPath = still.originalImagePath;
       _notify();
       final replaceId = replacePageId;
@@ -252,29 +403,23 @@ class CaptureViewModel extends ChangeNotifier {
         _replacementComplete = true;
         return [replaced];
       }
-      final pages = _projectType == ProjectType.book
-          ? await _processBookSpreadUseCase.processCapture(
-              capture: still,
-              projectId: projectId,
-              sequence: _pageCount,
-              pageOrderDirection: _pageOrderDirection,
-            )
-          : [
-              await _capturePageUseCase.processCapture(
-                capture: still,
-                projectId: projectId,
-                sequence: _pageCount,
-              ),
-            ];
+      final pages = <ScanPage>[];
+      for (final item in stills) {
+        pages.addAll(
+          await _persistCapturedStill(
+            item,
+            sequence: _pageCount + pages.length,
+          ),
+        );
+      }
       _pageCount += pages.length;
       final first = pages.first;
-      final uncertainCrop =
-          (first.cropPoints == null || first.cropPoints == Quad.fullFrame) &&
-          still.detectionConfidence < DetectionThresholds.minConfidence &&
-          still.detectedQuad == null;
-      if (uncertainCrop) {
-        onNeedsCropCorrection?.call(first.id);
-      }
+      _lastPagePreviewPath =
+          first.processedImagePath ??
+          first.thumbnailPath ??
+          first.originalImagePath;
+      // Do not push crop mid-session — that stole the camera after every
+      // uncertain auto-capture. Corner fixes belong in post-capture edit.
       final resultPath = first.processedImagePath ?? first.thumbnailPath;
       _frozenPreviewPath = null;
       if (replaceId == null &&
@@ -286,14 +431,81 @@ class CaptureViewModel extends ChangeNotifier {
       }
       return pages;
     } on ProviderException catch (e) {
+      if (e.category == ProviderErrorCategory.cancelled) return const [];
       _error = e;
+      return const [];
+    } catch (e) {
+      _error = ProviderException(ProviderErrorCategory.unknown, e.toString());
       return const [];
     } finally {
       _capturing = false;
+      _captureFromAuto = false;
       _frozenPreviewPath = null;
       _resultPreviewPath = null;
       _notify();
     }
+  }
+
+  Future<List<StillCapture>> _captureStills() async {
+    return [await _captureProvider.captureStill()];
+  }
+
+  Future<List<ScanPage>> importStill(String imagePath) {
+    return _persistImported(
+      StillCapture(
+        originalImagePath: imagePath,
+        detectedQuad: null,
+        qualityScore: 0.8,
+        warnings: const {},
+        capturedAtMs: DateTime.now().millisecondsSinceEpoch,
+        providerInfo: const ProviderInfo(
+          providerName: 'gallery-import',
+          adapterVersion: '1.0.0',
+        ),
+      ),
+    );
+  }
+
+  Future<List<ScanPage>> _persistImported(StillCapture still) async {
+    if (_capturing || !_sessionOpen) return const [];
+    _capturing = true;
+    _notify();
+    try {
+      final pages = await _persistCapturedStill(still, sequence: _pageCount);
+      _pageCount += pages.length;
+      return pages;
+    } finally {
+      _capturing = false;
+      _notify();
+    }
+  }
+
+  Future<List<ScanPage>> _persistCapturedStill(
+    StillCapture still, {
+    required int sequence,
+  }) {
+    if (_projectType == ProjectType.book) {
+      if (_bookScanMode == BookScanMode.twoPageSpread) {
+        return _processBookSpreadUseCase.processCapture(
+          capture: still,
+          projectId: projectId,
+          sequence: sequence,
+          pageOrderDirection: _pageOrderDirection,
+        );
+      }
+      return _processBookSpreadUseCase.processSinglePage(
+        capture: still,
+        projectId: projectId,
+        sequence: sequence,
+      );
+    }
+    return _capturePageUseCase
+        .processCapture(
+          capture: still,
+          projectId: projectId,
+          sequence: sequence,
+        )
+        .then((page) => [page]);
   }
 
   /// Applies the name the user chose in the post-capture "Name this scan"

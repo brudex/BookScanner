@@ -223,14 +223,27 @@ void main() {
   );
 
   test(
-    '9. table layout: no block is ever classified as a table or table cell '
-    '(documented gap -- table/tableCell exist on BlockType but AnalyzeOcrLayoutUseCase never assigns them)',
+    '9. table layout: a 2x3 grid of cells is classified as tableCell blocks '
+    'with correct row/column positions, not merged into paragraphs',
     () {
       final result = layoutUseCase('page1', corpus.tableLayoutRawLines());
 
-      expect(result, isNotEmpty);
-      expect(result.every((b) => b.blockType != BlockType.table), isTrue);
-      expect(result.every((b) => b.blockType != BlockType.tableCell), isTrue);
+      expect(result, hasLength(6));
+      expect(result.every((b) => b.blockType == BlockType.tableCell), isTrue);
+
+      final byText = {for (final b in result) b.text: b};
+      expect(byText['Name']!.tableRow, 0);
+      expect(byText['Name']!.tableColumn, 0);
+      expect(byText['Qty']!.tableRow, 0);
+      expect(byText['Qty']!.tableColumn, 1);
+      expect(byText['Price']!.tableRow, 0);
+      expect(byText['Price']!.tableColumn, 2);
+      expect(byText['Widget']!.tableRow, 1);
+      expect(byText['Widget']!.tableColumn, 0);
+      expect(byText['4']!.tableRow, 1);
+      expect(byText['4']!.tableColumn, 1);
+      expect(byText['9.99']!.tableRow, 1);
+      expect(byText['9.99']!.tableColumn, 2);
     },
   );
 

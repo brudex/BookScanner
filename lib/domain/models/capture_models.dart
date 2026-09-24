@@ -99,6 +99,7 @@ class StillCapture {
     required this.providerInfo,
     this.detectionConfidence = 0,
     this.analyzedFromStill = false,
+    this.nativeReady = false,
   });
 
   final String originalImagePath;
@@ -116,6 +117,10 @@ class StillCapture {
   /// True when [detectedQuad] / [qualityScore] were computed from the
   /// saved JPEG rather than the last live-analysis frame.
   final bool analyzedFromStill;
+
+  /// True when the JPEG is already a deskewed document scan from a native
+  /// scanner UI. Capture must not run detect/crop/enhance on it again.
+  final bool nativeReady;
 
   factory StillCapture.fromChannel(Map<Object?, Object?> map) {
     final quadMap = map['detectedQuad'] as Map<Object?, Object?>?;
@@ -137,6 +142,7 @@ class StillCapture {
       detectionConfidence:
           (map['detectionConfidence'] as num?)?.toDouble() ?? 0,
       analyzedFromStill: map['analyzedFromStill'] as bool? ?? false,
+      nativeReady: map['nativeReady'] as bool? ?? false,
     );
   }
 }
@@ -144,7 +150,7 @@ class StillCapture {
 /// User-configurable capture session settings.
 class CaptureSettings {
   const CaptureSettings({
-    this.autoCaptureEnabled = true,
+    this.autoCaptureEnabled = false,
     this.countdownSeconds = 0,
     this.continuousCapture = false,
     this.hapticConfirmation = true,

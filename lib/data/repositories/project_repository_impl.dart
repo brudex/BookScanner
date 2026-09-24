@@ -78,6 +78,23 @@ class ProjectRepositoryImpl implements ProjectRepository {
   }
 
   @override
+  Future<Set<String>> projectIdsMatchingOcrText(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return {};
+    final rows = await _db.rawQuery(
+      '''
+      SELECT DISTINCT projects.id AS id
+      FROM projects
+      JOIN pages ON pages.project_id = projects.id
+      JOIN ocr_blocks ON ocr_blocks.page_id = pages.id
+      WHERE ocr_blocks.text LIKE ?
+      ''',
+      ['%$trimmed%'],
+    );
+    return rows.map((row) => row['id']! as String).toSet();
+  }
+
+  @override
   Future<Project?> getProject(String id) async {
     final rows = await _db.query('projects', where: 'id = ?', whereArgs: [id]);
     if (rows.isEmpty) return null;
@@ -167,6 +184,7 @@ class ProjectRepositoryImpl implements ProjectRepository {
     'notes': project.metadata.notes,
     'starting_page_number': project.metadata.startingPageNumber,
     'page_order_direction': project.metadata.pageOrderDirection.name,
+    'book_scan_mode': project.metadata.bookScanMode.name,
     'page_order': JsonCodecHelpers.encodeStringList(project.pageOrder),
     'created_at': project.createdAt.millisecondsSinceEpoch,
     'updated_at': project.updatedAt.millisecondsSinceEpoch,
@@ -191,6 +209,9 @@ class ProjectRepositoryImpl implements ProjectRepository {
       startingPageNumber: row['starting_page_number']! as int,
       pageOrderDirection: PageOrderDirection.values.byName(
         row['page_order_direction']! as String,
+      ),
+      bookScanMode: BookScanMode.values.byName(
+        row['book_scan_mode'] as String? ?? 'twoPageSpread',
       ),
     ),
     pageOrder: JsonCodecHelpers.decodeStringList(row['page_order'] as String?),

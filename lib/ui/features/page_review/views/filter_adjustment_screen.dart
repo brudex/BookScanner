@@ -49,6 +49,7 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
 
   @override
   void dispose() {
+    _viewModel.cancelPendingPreview();
     if (widget.viewModel == null) _viewModel.dispose();
     super.dispose();
   }
@@ -98,27 +99,36 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
               ),
             );
           }
-          final page = _viewModel.page!;
+          final previewPath = _viewModel.previewImagePath!;
+          final preview = Image.file(
+            File(previewPath),
+            key: ValueKey(
+              'adjustPreviewImage-$previewPath-${_viewModel.previewEpoch}',
+            ),
+            gaplessPlayback: false,
+          );
           return Column(
             children: [
               Expanded(
                 child: Center(
-                  child: ColorFiltered(
-                    key: const ValueKey('adjustPreview'),
-                    // Live, GPU-side approximation of the chosen filter and
-                    // brightness/contrast -- not pixel-identical to the real
-                    // package:image pipeline that only runs once on Save
-                    // (see _colorMatrixFor's doc comment). Sharpness has no
-                    // cheap GPU equivalent, so it's not previewed live.
-                    colorFilter: ColorFilter.matrix(
-                      _colorMatrixFor(
-                        _viewModel.filter,
-                        _viewModel.brightness,
-                        _viewModel.contrast,
-                      ),
-                    ),
-                    child: Image.file(File(page.originalImagePath)),
-                  ),
+                  child: _viewModel.showingRenderedPreview
+                      ? KeyedSubtree(
+                          key: const ValueKey('adjustPreview'),
+                          child: preview,
+                        )
+                      : ColorFiltered(
+                          key: const ValueKey('adjustPreview'),
+                          // Live, GPU-side approximation until the real
+                          // crop+filter preview JPEG finishes rendering.
+                          colorFilter: ColorFilter.matrix(
+                            _colorMatrixFor(
+                              _viewModel.filter,
+                              _viewModel.brightness,
+                              _viewModel.contrast,
+                            ),
+                          ),
+                          child: preview,
+                        ),
                 ),
               ),
               Padding(
@@ -164,6 +174,23 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
                       max: 100,
                       onChanged: _viewModel.setSharpness,
                     ),
+                    _AdjustSlider(
+                      sliderKey: const ValueKey('adjustFineRotationSlider'),
+                      label: l10n.fineRotationLabel,
+                      value: _viewModel.fineRotationDegrees,
+                      min: -45,
+                      max: 45,
+                      onChanged: _viewModel.setFineRotationDegrees,
+                    ),
+                    if (_viewModel.filter == PageFilter.blackAndWhite)
+                      _AdjustSlider(
+                        sliderKey: const ValueKey('adjustThresholdSlider'),
+                        label: l10n.thresholdLabel,
+                        value: _viewModel.threshold,
+                        min: 0,
+                        max: 1,
+                        onChanged: _viewModel.setThreshold,
+                      ),
                   ],
                 ),
               ),
@@ -370,6 +397,7 @@ List<double> _colorMatrixFor(
       0,
     ],
     PageFilter.grayscale => withScaleOffset(0.2126, 0.7152, 0.0722, 1),
-    PageFilter.blackAndWhite => withScaleOffset(0.2126, 0.7152, 0.0722, 6),
+    // Soft document look approximation (not the real adaptive pipeline).
+    PageFilter.blackAndWhite => withScaleOffset(0.2126, 0.7152, 0.0722, 2.4),
   };
 }

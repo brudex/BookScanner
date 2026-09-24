@@ -245,7 +245,8 @@ class _BlockTile extends StatelessWidget {
           : null,
       child: ListTile(
         onTap: onTap,
-        title: Text('$prefix${block.text}', style: style),
+        title: SelectableText('$prefix${block.text}', style: style),
+        // SelectableText allows select/copy (SPEC 6.4); tap opens correct.
         subtitle: block.isLowConfidence || block.wasCorrected
             ? Text(
                 block.wasCorrected

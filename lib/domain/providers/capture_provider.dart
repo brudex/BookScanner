@@ -48,3 +48,12 @@ abstract interface class CaptureProvider {
 
   Future<void> closeSession();
 }
+
+/// Optional batch capture used by native document-scanner UIs (SPEC 9.6
+/// fallback for documents). Feature code checks `is BatchDocumentCapture`
+/// instead of importing a concrete adapter.
+abstract interface class BatchDocumentCapture {
+  /// Opens the native multi-page scanner and returns every page the user
+  /// kept. An empty list means the user cancelled.
+  Future<List<StillCapture>> scanDocuments({int maxPages = 50});
+}

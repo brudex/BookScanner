@@ -12,20 +12,131 @@ class AppLocalizationsEn extends AppLocalizations {
   String get appTitle => 'BookScanner';
 
   @override
-  String get libraryTitle => 'Library';
+  String get libraryTitle => 'BookScanner';
 
   @override
   String get libraryEmptyTitle => 'No scans yet';
 
   @override
   String get libraryEmptySubtitle =>
-      'Tap New Scan to digitize your first document or book';
+      'Tap Scan Document or the camera to digitize your first page';
 
   @override
   String get newScan => 'New Scan';
 
   @override
-  String get searchHint => 'Search by name or text';
+  String get homeGreetingMorning => 'Good morning';
+
+  @override
+  String get homeGreetingAfternoon => 'Good afternoon';
+
+  @override
+  String get homeGreetingEvening => 'Good evening';
+
+  @override
+  String get homeQuickActions => 'Quick Actions';
+
+  @override
+  String get homeScanId => 'Scan ID';
+
+  @override
+  String get homeAddFolder => 'Add Folder';
+
+  @override
+  String get homeStatDocuments => 'Documents';
+
+  @override
+  String get homeStatBooks => 'Books';
+
+  @override
+  String get homeStatPages => 'Pages';
+
+  @override
+  String get homeActionDocumentScan => 'Document scan';
+
+  @override
+  String get homeActionBookScan => 'Book scan';
+
+  @override
+  String get homeActionImport => 'Import';
+
+  @override
+  String get homeFilterAll => 'All';
+
+  @override
+  String get homeNavHome => 'Home';
+
+  @override
+  String get homeNavScan => 'Scan';
+
+  @override
+  String get homeNavScans => 'Scans';
+
+  @override
+  String homeLibraryCount(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count scans in your library',
+      one: '1 scan in your library',
+      zero: 'No scans in your library',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get homeScanSection => 'Scan';
+
+  @override
+  String get homeScanDoc => 'Scan Document';
+
+  @override
+  String get homeScanDocSubtitle => 'Camera capture';
+
+  @override
+  String get homeScanBook => 'Scan Book';
+
+  @override
+  String get homeGallery => 'Gallery';
+
+  @override
+  String get homeGallerySubtitle => 'Photos from your roll';
+
+  @override
+  String get homeImportFile => 'Import';
+
+  @override
+  String get homeImportFileSubtitle => 'PDF into a new scan';
+
+  @override
+  String get homeBookSubtitle => 'Spreads & dewarp';
+
+  @override
+  String get homeFavoritesFilter => 'Favorites';
+
+  @override
+  String get rename => 'Rename';
+
+  @override
+  String get homePopularTools => 'Popular Tools';
+
+  @override
+  String get homeScanNow => 'Scan Now';
+
+  @override
+  String get homeRecent => 'Recent';
+
+  @override
+  String get homeImporting => 'Importing…';
+
+  @override
+  String get searchHint => 'Search scans…';
+
+  @override
+  String get scansSearchTitle => 'Scans';
+
+  @override
+  String get searchNoResults => 'No matching scans';
 
   @override
   String get folders => 'Folders';
@@ -49,6 +160,69 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get sortAction => 'Sort';
+
+  @override
+  String get sortByDateUpdated => 'Date updated';
+
+  @override
+  String get sortByDateCreated => 'Date created';
+
+  @override
+  String get sortByTitle => 'Title';
+
+  @override
+  String get sortByPageCount => 'Page count';
+
+  @override
+  String get viewAsGrid => 'Grid view';
+
+  @override
+  String get viewAsList => 'List view';
+
+  @override
+  String get foldersEmptyTitle => 'No folders yet';
+
+  @override
+  String get createFolder => 'New folder';
+
+  @override
+  String get folderNameLabel => 'Folder name';
+
+  @override
+  String get deleteFolder => 'Delete folder';
+
+  @override
+  String get moveToFolder => 'Move to folder';
+
+  @override
+  String get noFolder => 'No folder';
+
+  @override
+  String get editTags => 'Edit tags';
+
+  @override
+  String get tagsFieldLabel => 'Tags (comma separated)';
+
+  @override
+  String get batchRename => 'Rename selected';
+
+  @override
+  String get batchRenamePatternLabel => 'Name pattern (use # for the number)';
+
+  @override
+  String selectedCount(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count scans selected',
+      one: '1 scan selected',
+      zero: 'No scans selected',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get newScanModeTitle => 'What are you scanning?';
 
   @override
@@ -66,10 +240,61 @@ class AppLocalizationsEn extends AppLocalizations {
       'Bound books with page-turn guidance and dewarping';
 
   @override
+  String get bookSetupTitle => 'Book details';
+
+  @override
+  String get bookSetupTitleField => 'Title';
+
+  @override
+  String get bookSetupAuthorField => 'Author';
+
+  @override
+  String get bookSetupLanguageField => 'Language';
+
+  @override
+  String get bookSetupStartingPageField => 'Starting page number';
+
+  @override
+  String get bookSetupEditionField => 'Edition';
+
+  @override
+  String get bookSetupIsbnField => 'ISBN';
+
+  @override
+  String get bookSetupTagsField => 'Tags (comma separated)';
+
+  @override
+  String get bookSetupNotesField => 'Notes';
+
+  @override
+  String get bookSetupScanMode => 'Scan mode';
+
+  @override
+  String get bookScanModeSinglePage => 'Single page';
+
+  @override
+  String get bookScanModeTwoPageSpread => 'Two-page spread';
+
+  @override
+  String get bookSetupPageOrder => 'Reading order';
+
+  @override
+  String get bookPageOrderLtr => 'Left to right';
+
+  @override
+  String get bookPageOrderRtl => 'Right to left';
+
+  @override
+  String get continueToCapture => 'Continue';
+
+  @override
   String get captureTitle => 'Capture';
 
   @override
   String get captureAutoLabel => 'Auto';
+
+  @override
+  String get captureManualLabel => 'Manual';
 
   @override
   String get capturePermissionRationale =>
@@ -107,10 +332,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get captureFocusing => 'Focusing…';
 
   @override
-  String get captureHoldStill => 'Hold still';
+  String get captureHoldStill => 'Hold the camera still';
 
   @override
   String get captureFlashOff => 'Flash off';
+
+  @override
+  String get captureImport => 'Import';
+
+  @override
+  String get captureGrid => 'Grid';
 
   @override
   String get captureFlashOn => 'Flash on';
@@ -137,7 +368,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get doneScanning => 'Done';
+  String get doneScanning => 'Continue';
+
+  @override
+  String get postCaptureNext => 'Next';
+
+  @override
+  String get postCaptureSave => 'Save';
 
   @override
   String projectPageCount(num count) {
@@ -156,6 +393,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get reviewTitle => 'Review pages';
+
+  @override
+  String get reviewAddCamera => 'Camera';
+
+  @override
+  String get reviewAddGallery => 'Gallery';
+
+  @override
+  String get reviewAddFromFiles => 'Import from Files';
+
+  @override
+  String get reviewAddPagesTooltip => 'Add pages';
 
   @override
   String get toggleGridView => 'Toggle grid/list view';
@@ -182,7 +431,91 @@ class AppLocalizationsEn extends AppLocalizations {
   String get lowQuality => 'Low quality — consider rescanning';
 
   @override
+  String get dismissWarning => 'Dismiss';
+
+  @override
+  String get pdfOptionsSection => 'PDF options';
+
+  @override
+  String get pdfPageSize => 'Page size';
+
+  @override
+  String get pdfOrientation => 'Orientation';
+
+  @override
+  String get pdfMargins => 'Margins';
+
+  @override
+  String get pdfMarginsNone => 'None';
+
+  @override
+  String get pdfMarginsNarrow => 'Narrow';
+
+  @override
+  String get pdfMarginsNormal => 'Normal';
+
+  @override
+  String get pdfWatermark => 'Watermark';
+
+  @override
+  String get pdfWatermarkHint => 'Optional text overlay';
+
+  @override
+  String get pdfPageSizeA4 => 'A4';
+
+  @override
+  String get pdfPageSizeLetter => 'Letter';
+
+  @override
+  String get pdfPageSizeLegal => 'Legal';
+
+  @override
+  String get pdfPageSizeMatchSource => 'Match page';
+
+  @override
+  String get pdfOrientationPortrait => 'Portrait';
+
+  @override
+  String get pdfOrientationLandscape => 'Landscape';
+
+  @override
+  String get pdfOrientationAuto => 'Auto';
+
+  @override
+  String get printAction => 'Print';
+
+  @override
+  String get saveAsAction => 'Save as…';
+
+  @override
+  String get ocrLanguageEnglish => 'English';
+
+  @override
+  String get ocrLanguageSpanish => 'Spanish';
+
+  @override
+  String get ocrLanguageFrench => 'French';
+
+  @override
+  String get ocrLanguageGerman => 'German';
+
+  @override
+  String get ocrLanguagePortuguese => 'Portuguese';
+
+  @override
+  String get ocrLanguageItalian => 'Italian';
+
+  @override
   String get cropAction => 'Crop';
+
+  @override
+  String get pageLabelAction => 'Page number / label';
+
+  @override
+  String get pageLabelTitle => 'Page label';
+
+  @override
+  String get pageLabelHint => 'e.g. Cover, iii, 12';
 
   @override
   String get adjustAction => 'Filter & adjust';
@@ -194,7 +527,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get filterOriginal => 'Original';
 
   @override
-  String get filterEnhancedColor => 'Enhanced';
+  String get filterEnhancedColor => 'Document';
 
   @override
   String get filterGrayscale => 'Grayscale';
@@ -215,6 +548,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sharpnessLabel => 'Sharpness';
 
   @override
+  String get fineRotationLabel => 'Fine rotation';
+
+  @override
+  String get thresholdLabel => 'Threshold';
+
+  @override
+  String get revertToOriginal => 'Revert to original';
+
+  @override
   String get spreadSplitAction => 'Re-split spread';
 
   @override
@@ -228,6 +570,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get cropResetFullFrame => 'Reset to full frame';
+
+  @override
+  String get cropNoCrop => 'No Crop';
+
+  @override
+  String get cropRotateLeft => 'Rotate L';
+
+  @override
+  String get cropRotateRight => 'Rotate R';
+
+  @override
+  String get cropNext => 'Next';
 
   @override
   String get ocrAction => 'Recognize text';
@@ -273,6 +627,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get exportDocx => 'Word (.docx)';
+
+  @override
+  String get exportImages => 'Images (JPG/PNG)';
+
+  @override
+  String get exportImagesFormatJpg => 'JPG';
+
+  @override
+  String get exportImagesFormatPng => 'PNG';
+
+  @override
+  String get compressAction => 'Compress';
+
+  @override
+  String get compressQualityLabel => 'Quality';
+
+  @override
+  String compressEstimatedSize(String size) {
+    return 'Estimated size: $size';
+  }
+
+  @override
+  String get apply => 'Apply';
 
   @override
   String get exportInProgress => 'Exporting…';
@@ -361,6 +738,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsStripLocation => 'Strip location from exports';
 
   @override
+  String get settingsCaptureSection => 'Capture';
+
+  @override
+  String get settingsCountdown => 'Capture countdown';
+
+  @override
+  String get settingsCountdownOff => 'Off';
+
+  @override
+  String get settingsContinuousCapture => 'Continuous capture';
+
+  @override
+  String get settingsHapticConfirmation => 'Haptic feedback on capture';
+
+  @override
+  String get settingsAudioConfirmation => 'Sound on capture';
+
+  @override
   String get copyrightNoticeTitle => 'Scan responsibly';
 
   @override
@@ -400,4 +795,86 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get nameScanLabel => 'Scan name';
+
+  @override
+  String get onboardingSkip => 'Skip';
+
+  @override
+  String get onboardingContinue => 'Continue';
+
+  @override
+  String get onboardingGetStarted => 'Get Started';
+
+  @override
+  String get onboardingScanTitle => 'Scan Documents in Seconds';
+
+  @override
+  String get onboardingScanBody =>
+      'Turn any paper into a crisp, ready-to-share PDF — right from your camera.';
+
+  @override
+  String get onboardingBookTitle => 'Built for Books, Too';
+
+  @override
+  String get onboardingBookBody =>
+      'Capture a full two-page spread and we\'ll automatically flatten curves and split the pages.';
+
+  @override
+  String get onboardingOrganizeTitle => 'Export & Stay Organized';
+
+  @override
+  String get onboardingOrganizeBody =>
+      'Save as PDF or Word, recognize text with OCR, and keep every scan easy to find.';
+
+  @override
+  String get unlockTitle => 'BookScanner is locked';
+
+  @override
+  String get unlockSubtitle => 'Confirm it\'s you to continue';
+
+  @override
+  String get unlockButton => 'Unlock';
+
+  @override
+  String get unlockFailed => 'Couldn\'t verify — try again';
+
+  @override
+  String get favoritesEmptyTitle => 'No favorites yet';
+
+  @override
+  String get favoritesEmptySubtitle => 'Tap the star on a scan to add it here';
+
+  @override
+  String get trashEmptyTitle => 'Trash is empty';
+
+  @override
+  String get trashEmptySubtitle =>
+      'Deleted scans appear here so you can restore or remove them forever';
+
+  @override
+  String get restoreAction => 'Restore';
+
+  @override
+  String get deleteForeverAction => 'Delete Forever';
+
+  @override
+  String get deleteForeverConfirmTitle => 'Delete forever?';
+
+  @override
+  String deleteForeverConfirmBody(String title) {
+    return 'This can\'t be undone. \"$title\" and its pages will be permanently deleted.';
+  }
+
+  @override
+  String deleteForeverConfirmBodySelected(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'This can\'t be undone. $count selected scans and their pages will be permanently deleted.',
+      one:
+          'This can\'t be undone. 1 selected scan and its pages will be permanently deleted.',
+    );
+    return '$_temp0';
+  }
 }

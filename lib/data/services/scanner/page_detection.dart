@@ -87,13 +87,18 @@ Quad? detectDocumentQuad(img.Image upright, {bool splitOpenBook = true}) {
       }
     }
     // No real foreground/background split — the whole frame is one class.
-    if (paperCount < w * h * 0.25 || paperCount > w * h * 0.985) continue;
+    // Upper bound is deliberately loose (not e.g. 0.95): a document
+    // photographed close-up to maximize resolution routinely leaves only a
+    // 2-5% background border, and that's still a real, croppable split —
+    // only a genuinely edge-to-edge frame (no border at all) has nothing
+    // to detect against.
+    if (paperCount < w * h * 0.25 || paperCount > w * h * 0.995) continue;
 
     final closed = _erode(_dilate(mask, w, h, 4), w, h, 4);
     final component = _largestComponent(closed, w, h);
     if (component == null) continue;
     if (component.length < w * h * 0.25) continue;
-    if (component.length > w * h * 0.95) continue;
+    if (component.length > w * h * 0.975) continue;
     hadSplit = true;
 
     // An open book is one connected paper blob. Fitting 4 corners to that
@@ -160,7 +165,7 @@ Quad? detectDocumentQuad(img.Image upright, {bool splitOpenBook = true}) {
   if (quad == null || _isNearlyFullFrame(quad)) return null;
 
   final area = _normalizedQuadArea(quad);
-  if (area < 0.12 || area > 0.98) return null;
+  if (area < 0.12 || area > 0.99) return null;
 
   final cx = (sumX / pixels.length) / w - 0.5;
   final cy = (sumY / pixels.length) / h - 0.5;
@@ -328,7 +333,7 @@ Quad? _detectEdgeLinesQuad(img.Image gray) {
   final quad = _orderedNormalizedQuad(corners, w, h);
   if (quad == null || _isNearlyFullFrame(quad)) return null;
   final area = _normalizedQuadArea(quad);
-  if (area < 0.12 || area > 0.98) return null;
+  if (area < 0.12 || area > 0.99) return null;
   return quad;
 }
 

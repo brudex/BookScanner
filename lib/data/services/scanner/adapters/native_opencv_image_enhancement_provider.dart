@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../../domain/models/geometry.dart';
 import '../../../../domain/models/provider_info.dart';
+import '../../../../domain/models/scan_page.dart';
 import '../../../../domain/providers/image_enhancement_provider.dart';
 import '../../local/file_storage_service.dart';
 import '../vision_platform_channel.dart';
@@ -52,13 +53,35 @@ class NativeOpenCvImageEnhancementProvider implements ImageEnhancementProvider {
         filter: request.filter.name,
         removeShadowsAndStains: request.removeShadowsAndStains,
       );
+      // Native warp/filter ignores brightness/contrast/sharpness — apply
+      // those as a Dart pass on the already-processed page when needed.
+      final needsAdjust =
+          request.brightness != 0 ||
+          request.contrast != 0 ||
+          request.sharpness != 0;
+      final processedPath = needsAdjust
+          ? (await _fallback.enhance(
+              EnhancementRequest(
+                sourceImagePath: native.processedImagePath,
+                outputImagePath: request.outputImagePath,
+                cropPoints: Quad.fullFrame,
+                rotationDegrees: 0,
+                filter: PageFilter.original,
+                brightness: request.brightness,
+                contrast: request.contrast,
+                sharpness: request.sharpness,
+                removeShadowsAndStains: false,
+                detectCrop: false,
+              ),
+            )).processedImagePath
+          : native.processedImagePath;
       final pageId = p.basenameWithoutExtension(request.outputImagePath);
       final thumbnailPath = await _fileStorage.generateThumbnail(
-        native.processedImagePath,
+        processedPath,
         pageId,
       );
       return EnhancementResult(
-        processedImagePath: native.processedImagePath,
+        processedImagePath: processedPath,
         thumbnailPath: thumbnailPath,
         qualityScore: native.qualityScore,
         providerInfo: native.providerInfo,

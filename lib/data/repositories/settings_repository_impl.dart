@@ -55,6 +55,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
     'hasSeenCopyrightNotice': s.hasSeenCopyrightNotice,
     'largeExportAcknowledgedPageThreshold':
         s.largeExportAcknowledgedPageThreshold,
+    'hasCompletedOnboarding': s.hasCompletedOnboarding,
     'captureSettings': {
       'autoCaptureEnabled': s.captureSettings.autoCaptureEnabled,
       'countdownSeconds': s.captureSettings.countdownSeconds,
@@ -79,6 +80,7 @@ class SettingsRepositoryImpl implements SettingsRepository {
       hasSeenCopyrightNotice: json['hasSeenCopyrightNotice'] as bool? ?? false,
       largeExportAcknowledgedPageThreshold:
           json['largeExportAcknowledgedPageThreshold'] as int? ?? 300,
+      hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? false,
       captureSettings: cs == null
           ? const CaptureSettings()
           : CaptureSettings(

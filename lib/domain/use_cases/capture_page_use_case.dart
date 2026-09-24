@@ -8,18 +8,10 @@ import '../providers/page_detection_provider.dart';
 import '../repositories/page_path_allocator.dart';
 import '../repositories/page_repository.dart';
 
-/// Coordinates the post-shutter pipeline: persist the original still,
-/// then crop/perspective-correct/enhance in one decode. This is the
-/// single place that turns a raw [StillCapture] into a durable
-/// [ScanPage] so both the document and book capture flows share identical
-/// persistence and crash-safety behavior (SPEC 9.2: "Persist the original
-/// still image immediately... Enhancement... run as cancellable background
-/// jobs").
-///
-/// Page finding runs inside [ImageEnhancementProvider.enhance] when
-/// `detectCrop: true` so the JPEG is decoded once. A detection miss
-/// degrades to the capture-time hint or [Quad.fullFrame] (SPEC 9.7)
-/// without aborting the capture.
+/// Coordinates the post-shutter pipeline: persist the original still, then
+/// crop/perspective-correct/enhance. Industry-standard retention: the raw
+/// camera file stays on disk for future crop/filter (SPEC 6.2) while the UI
+/// shows [ScanPage.processedImagePath] everywhere except edit surfaces.
 class CapturePageUseCase {
   CapturePageUseCase({
     required PageRepository pageRepository,
@@ -43,7 +35,7 @@ class CapturePageUseCase {
     required StillCapture capture,
     required String projectId,
     required int sequence,
-    PageFilter filter = PageFilter.original,
+    PageFilter filter = kDefaultCaptureFilter,
   }) async {
     final pageId = _uuid.v4();
 
@@ -55,10 +47,10 @@ class CapturePageUseCase {
         cropPoints: capture.detectedQuad ?? Quad.fullFrame,
         rotationDegrees: 0,
         filter: filter,
-        detectCrop: true,
+        detectCrop: !capture.nativeReady,
+        passthrough: capture.nativeReady,
       ),
     );
-    final quad = enhancement.cropPoints;
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final page = ScanPage(
@@ -68,7 +60,8 @@ class CapturePageUseCase {
       originalImagePath: capture.originalImagePath,
       processedImagePath: enhancement.processedImagePath,
       thumbnailPath: enhancement.thumbnailPath,
-      cropPoints: quad,
+      cropPoints: enhancement.cropPoints,
+      filter: filter,
       qualityScore: enhancement.qualityScore,
       warnings: capture.warnings,
       capturedAtMs: capture.capturedAtMs,
@@ -93,42 +86,47 @@ class CapturePageUseCase {
     return page;
   }
 
-  /// Re-runs crop/rotation/filter/enhancement for an existing page (manual
-  /// corner adjustment, filter change) without re-capturing (SPEC 6.2:
-  /// "Page-level undo and access to the original image until the user
-  /// deletes it").
+  /// Re-runs crop/rotation/filter/enhancement from the retained original
+  /// (SPEC 6.2). Does not delete the camera still.
   Future<ScanPage> reprocessPage(
     ScanPage page, {
     Quad? cropPoints,
     int? rotationDegrees,
+    double? fineRotationDegrees,
     PageFilter? filter,
     double? brightness,
     double? contrast,
     double? sharpness,
+    double? threshold,
   }) async {
+    final resolvedCrop = cropPoints ?? page.cropPoints ?? Quad.fullFrame;
     final outputPath = _paths.processedPathFor(page.id, ext: 'jpg');
     final enhancement = await _enhancementProvider.enhance(
       EnhancementRequest(
         sourceImagePath: page.originalImagePath,
         outputImagePath: outputPath,
-        cropPoints: cropPoints ?? page.cropPoints ?? Quad.fullFrame,
+        cropPoints: resolvedCrop,
         rotationDegrees: rotationDegrees ?? page.rotationDegrees,
         filter: filter ?? page.filter,
+        fineRotationDegrees: fineRotationDegrees ?? page.fineRotationDegrees,
         brightness: brightness ?? page.brightness,
         contrast: contrast ?? page.contrast,
         sharpness: sharpness ?? page.sharpness,
+        threshold: threshold ?? page.threshold,
       ),
     );
 
     final updated = page.copyWith(
       processedImagePath: enhancement.processedImagePath,
       thumbnailPath: enhancement.thumbnailPath,
-      cropPoints: cropPoints,
-      rotationDegrees: rotationDegrees,
-      filter: filter,
-      brightness: brightness,
-      contrast: contrast,
-      sharpness: sharpness,
+      cropPoints: resolvedCrop,
+      rotationDegrees: rotationDegrees ?? page.rotationDegrees,
+      fineRotationDegrees: fineRotationDegrees ?? page.fineRotationDegrees,
+      filter: filter ?? page.filter,
+      brightness: brightness ?? page.brightness,
+      contrast: contrast ?? page.contrast,
+      sharpness: sharpness ?? page.sharpness,
+      threshold: threshold ?? page.threshold,
       qualityScore: enhancement.qualityScore,
       status: enhancement.qualityScore < 0.35
           ? PageStatus.needsRescan
@@ -138,23 +136,39 @@ class CapturePageUseCase {
     return updated;
   }
 
-  /// Replaces [pageId]'s image content in place with a freshly captured
-  /// [capture] (the "Rescan" action, SPEC 6.3) — as opposed to
-  /// [processCapture], which always allocates a brand-new page. Runs the
-  /// same detect/enhance pipeline `processCapture` does, but keeps the
-  /// page's existing identity (`id`/`sequence`/`logicalPageLabel`/
-  /// `spreadSiblingPageId`) and its existing filter/brightness/contrast/
-  /// sharpness settings rather than resetting them.
-  ///
-  /// `originalImagePath` is intentionally *not* reachable through
-  /// [ScanPage.copyWith] (that method preserves it unconditionally, by
-  /// design — SPEC 6.2's "access to the original image until the user
-  /// deletes it" treats it as otherwise immutable) — a genuine rescan is the
-  /// one deliberate exception, so this constructs a new [ScanPage] directly.
-  ///
-  /// Known follow-up, not fixed here: any OCR blocks already persisted for
-  /// this `pageId` now describe the *old* image's text and are not
-  /// automatically invalidated or re-run.
+  /// Renders a filter/crop preview JPEG without updating the page row.
+  Future<String> renderAdjustedPreview(
+    ScanPage page, {
+    Quad? cropPoints,
+    int? rotationDegrees,
+    double? fineRotationDegrees,
+    PageFilter? filter,
+    double? brightness,
+    double? contrast,
+    double? sharpness,
+    double? threshold,
+  }) async {
+    final resolvedCrop = cropPoints ?? page.cropPoints ?? Quad.fullFrame;
+    final outputPath = _paths.processedPathFor('${page.id}_preview', ext: 'jpg');
+    final enhancement = await _enhancementProvider.enhance(
+      EnhancementRequest(
+        sourceImagePath: page.originalImagePath,
+        outputImagePath: outputPath,
+        cropPoints: resolvedCrop,
+        rotationDegrees: rotationDegrees ?? page.rotationDegrees,
+        filter: filter ?? page.filter,
+        fineRotationDegrees: fineRotationDegrees ?? page.fineRotationDegrees,
+        brightness: brightness ?? page.brightness,
+        contrast: contrast ?? page.contrast,
+        sharpness: sharpness ?? page.sharpness,
+        threshold: threshold ?? page.threshold,
+      ),
+    );
+    return enhancement.processedImagePath;
+  }
+
+  /// Rescan: replace image content in place; keeps page identity and filter
+  /// settings. New camera still becomes the retained original.
   Future<ScanPage> replacePage(String pageId, StillCapture capture) async {
     final existing = await _pageRepository.getPage(pageId);
     if (existing == null) {
@@ -172,10 +186,10 @@ class CapturePageUseCase {
         brightness: existing.brightness,
         contrast: existing.contrast,
         sharpness: existing.sharpness,
-        detectCrop: true,
+        detectCrop: !capture.nativeReady,
+        passthrough: capture.nativeReady,
       ),
     );
-    final quad = enhancement.cropPoints;
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final replaced = ScanPage(
@@ -186,16 +200,13 @@ class CapturePageUseCase {
       originalImagePath: capture.originalImagePath,
       processedImagePath: enhancement.processedImagePath,
       thumbnailPath: enhancement.thumbnailPath,
-      cropPoints: quad,
+      cropPoints: enhancement.cropPoints,
       filter: existing.filter,
       brightness: existing.brightness,
       contrast: existing.contrast,
       sharpness: existing.sharpness,
       qualityScore: enhancement.qualityScore,
       warnings: capture.warnings,
-      // Genuinely new pixel content -- any prior duplicate/missing-page
-      // flags are stale until DetectPageAnomaliesUseCase re-evaluates the
-      // project.
       stages: {
         PipelineStage.detection: StageRecord(
           version: 1,

@@ -239,6 +239,76 @@ void main() {
 
       expect(enhancementProvider.lastRequest?.detectCrop, isTrue);
       expect(page.cropPoints, detected);
+      expect(page.originalImagePath, originalImagePath);
+      expect(page.processedImagePath, isNot(originalImagePath));
+      expect(page.filter, kDefaultCaptureFilter);
+      expect(enhancementProvider.lastRequest?.filter, kDefaultCaptureFilter);
+    },
+  );
+
+  test(
+    'processCapture skips detect/crop for nativeReady scanner output',
+    () async {
+      await useCase.processCapture(
+        capture: StillCapture(
+          originalImagePath: originalImagePath,
+          detectedQuad: Quad.fullFrame,
+          qualityScore: 0.9,
+          warnings: const {},
+          capturedAtMs: 123,
+          providerInfo: const ProviderInfo(
+            providerName: 'cunning-document-scanner',
+            adapterVersion: '1',
+          ),
+          nativeReady: true,
+        ),
+        projectId: 'proj1',
+        sequence: 0,
+      );
+
+      expect(enhancementProvider.lastRequest?.passthrough, isTrue);
+      expect(enhancementProvider.lastRequest?.detectCrop, isFalse);
+    },
+  );
+
+  test(
+    'reprocessPage with a new filter keeps the saved crop on the retained original',
+    () async {
+      const crop = Quad(
+        topLeft: Point2D(x: 0.2, y: 0.15),
+        topRight: Point2D(x: 0.85, y: 0.18),
+        bottomRight: Point2D(x: 0.88, y: 0.9),
+        bottomLeft: Point2D(x: 0.15, y: 0.88),
+      );
+      final rawPath = p.join(tmpDir.path, 'raw-camera.jpg');
+      await File(originalImagePath).copy(rawPath);
+      await pageRepository.addPage(
+        ScanPage(
+          id: 'p-crop',
+          projectId: 'proj1',
+          sequence: 0,
+          originalImagePath: rawPath,
+          processedImagePath: p.join(tmpDir.path, 'old.jpg'),
+          cropPoints: crop,
+          filter: PageFilter.blackAndWhite,
+          status: PageStatus.ready,
+        ),
+      );
+      final page = (await pageRepository.getPage('p-crop'))!;
+
+      final updated = await useCase.reprocessPage(
+        page,
+        filter: PageFilter.photo,
+      );
+
+      expect(enhancementProvider.lastRequest?.cropPoints, crop);
+      expect(enhancementProvider.lastRequest?.filter, PageFilter.photo);
+      expect(enhancementProvider.lastRequest?.sourceImagePath, rawPath);
+      expect(updated.cropPoints, crop);
+      expect(updated.filter, PageFilter.photo);
+      expect(updated.originalImagePath, rawPath);
+      expect(File(rawPath).existsSync(), isTrue);
+      expect(updated.hasDistinctOriginal, isTrue);
     },
   );
 

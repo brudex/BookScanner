@@ -109,7 +109,7 @@ void main() {
     if (await tmpDir.exists()) await tmpDir.delete(recursive: true);
   });
 
-  testWidgets('shows loading then the image with four corner handles', (
+  testWidgets('shows loading then the image with eight crop handles', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -133,11 +133,11 @@ void main() {
     await tester.runAsync(() => viewModel.initialize());
     await tester.pump();
 
-    for (final corner in CropCorner.values) {
-      expect(find.byKey(ValueKey('cropHandle-${corner.name}')), findsOneWidget);
+    for (final handle in CropHandle.values) {
+      expect(find.byKey(ValueKey('cropHandle-${handle.name}')), findsOneWidget);
     }
-    expect(find.byKey(const ValueKey('cropApplyButton')), findsOneWidget);
-    expect(find.byKey(const ValueKey('cropCancelButton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cropNextButton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cropNoCropButton')), findsOneWidget);
   });
 
   testWidgets('reset-to-full-frame button restores the quad after a drag', (
@@ -165,7 +165,7 @@ void main() {
     await tester.pump();
     expect(viewModel.quad, isNot(Quad.fullFrame));
 
-    await tester.tap(find.byKey(const ValueKey('cropResetButton')));
+    await tester.tap(find.byKey(const ValueKey('cropNoCropButton')));
     await tester.pump();
     expect(viewModel.quad, Quad.fullFrame);
   });

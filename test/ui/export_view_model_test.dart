@@ -11,6 +11,8 @@ import 'package:bookscanner/domain/repositories/ocr_repository.dart';
 import 'package:bookscanner/domain/repositories/page_path_allocator.dart';
 import 'package:bookscanner/domain/repositories/page_repository.dart';
 import 'package:bookscanner/domain/repositories/project_repository.dart';
+import 'package:bookscanner/domain/repositories/settings_repository.dart';
+import 'package:bookscanner/domain/use_cases/export_images_use_case.dart';
 import 'package:bookscanner/domain/use_cases/export_project_use_case.dart';
 import 'package:bookscanner/ui/features/export/view_models/export_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -86,6 +88,21 @@ class _FakeOcrRepository implements OcrRepository {
       const [];
 }
 
+class _FakeSettingsRepository implements SettingsRepository {
+  AppSettings _settings = const AppSettings();
+
+  @override
+  Future<AppSettings> getSettings() async => _settings;
+
+  @override
+  Future<void> updateSettings(AppSettings settings) async {
+    _settings = settings;
+  }
+
+  @override
+  Stream<AppSettings> watchSettings() => Stream.value(_settings);
+}
+
 class _FakeExportJobRepository implements ExportJobRepository {
   final _jobs = <String, ExportJob>{};
   final _controllers = <String, StreamController<ExportJob?>>{};
@@ -125,6 +142,9 @@ class _FakeProjectRepository implements ProjectRepository {
 
   @override
   Future<Project?> getProject(String id) async => nextProject;
+
+  @override
+  Future<Set<String>> projectIdsMatchingOcrText(String text) async => {};
 
   @override
   Stream<Project?> watchProject(String id) => Stream.value(nextProject);
@@ -181,6 +201,7 @@ void main() {
   late _FakePageRepository pageRepository;
   late _FakeProjectRepository projectRepository;
   late ExportProjectUseCase exportProjectUseCase;
+  late ExportImagesUseCase exportImagesUseCase;
 
   setUp(() async {
     tmpDir = await Directory.systemTemp.createTemp('export_vm_test_');
@@ -203,6 +224,12 @@ void main() {
       exportProvider: DartDocumentExportProvider(),
       paths: _FakePaths(tmpDir),
     );
+    exportImagesUseCase = ExportImagesUseCase(
+      pageRepository: pageRepository,
+      ocrRepository: _FakeOcrRepository(),
+      exportProvider: DartDocumentExportProvider(),
+      paths: _FakePaths(tmpDir),
+    );
   });
 
   tearDown(() async {
@@ -214,6 +241,8 @@ void main() {
     projectRepository: projectRepository,
     exportJobRepository: _FakeExportJobRepository(),
     exportProjectUseCase: exportProjectUseCase,
+    settingsRepository: _FakeSettingsRepository(),
+    exportImagesUseCase: exportImagesUseCase,
   );
 
   test(

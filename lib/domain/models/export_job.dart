@@ -12,6 +12,7 @@ class PdfExportOptions {
     this.orientation = PdfOrientation.auto,
     this.marginPoints = 0,
     this.imageQuality = 0.85,
+    this.maxDimensionPx,
     this.searchable = true,
     this.password,
     this.ownerPassword,
@@ -24,10 +25,32 @@ class PdfExportOptions {
 
   /// 0.0-1.0 JPEG quality used for page image compression.
   final double imageQuality;
+
+  /// When set, each page image is downscaled so its longer edge is at most
+  /// this many pixels before compression (SPEC 6.5 "Compress PDFs with
+  /// estimated output size and a quality preview"). Null keeps the
+  /// already-processed page resolution.
+  final int? maxDimensionPx;
   final bool searchable;
   final String? password;
   final String? ownerPassword;
   final String? watermarkText;
+}
+
+enum ImageExportFormat { jpg, png }
+
+/// Options for exporting each page as a standalone image file (SPEC 6.5
+/// "Convert... PDF pages to JPG/PNG").
+class ImageExportOptions {
+  const ImageExportOptions({
+    this.format = ImageExportFormat.jpg,
+    this.imageQuality = 0.9,
+  });
+
+  final ImageExportFormat format;
+
+  /// 0.0-1.0 JPEG quality; ignored for PNG (lossless).
+  final double imageQuality;
 }
 
 class MarkdownExportOptions {

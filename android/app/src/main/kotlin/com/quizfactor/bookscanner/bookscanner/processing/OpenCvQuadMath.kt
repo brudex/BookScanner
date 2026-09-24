@@ -100,4 +100,67 @@ object OpenCvQuadMath {
         for (i in a.indices) m = max(m, abs(a[i] - b[i]))
         return m
     }
+
+    private fun cross(o: Pair<Double, Double>, a: Pair<Double, Double>, b: Pair<Double, Double>): Double =
+        (a.first - o.first) * (b.second - o.second) - (a.second - o.second) * (b.first - o.first)
+
+    /**
+     * Convex hull via Andrew's monotone chain. Mirrors the Dart fallback
+     * detector's `_convexHull` (`lib/data/services/scanner/page_detection.dart`)
+     * so both detection paths degrade the same way on a noisy contour.
+     */
+    fun convexHull(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
+        if (points.size < 3) return points
+        val sorted = points.sortedWith(compareBy({ it.first }, { it.second }))
+        val lower = ArrayList<Pair<Double, Double>>()
+        for (p in sorted) {
+            while (lower.size >= 2 && cross(lower[lower.size - 2], lower.last(), p) <= 0) {
+                lower.removeAt(lower.size - 1)
+            }
+            lower.add(p)
+        }
+        val upper = ArrayList<Pair<Double, Double>>()
+        for (p in sorted.asReversed()) {
+            while (upper.size >= 2 && cross(upper[upper.size - 2], upper.last(), p) <= 0) {
+                upper.removeAt(upper.size - 1)
+            }
+            upper.add(p)
+        }
+        lower.removeAt(lower.size - 1)
+        upper.removeAt(upper.size - 1)
+        return lower + upper
+    }
+
+    /**
+     * Iteratively drops the hull vertex whose removal costs the least
+     * triangle area relative to its neighbors, until exactly 4 points
+     * remain. Mirrors the Dart fallback detector's `_approximateQuad`
+     * (`lib/data/services/scanner/page_detection.dart`) so a contour that
+     * isn't already a clean quadrilateral -- a curved book edge, a
+     * glare-broken edge, a folded corner -- degrades to a sensible quad
+     * instead of being discarded outright (see `OpenCvScanEngine.detectMat`,
+     * which previously required `approxPolyDP` to land on exactly 4 points
+     * at a single fixed epsilon and silently skipped every contour that
+     * didn't).
+     */
+    fun reduceToQuad(hull: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
+        if (hull.size <= 4) return hull
+        val pts = hull.toMutableList()
+        while (pts.size > 4) {
+            var minIdx = 0
+            var minArea = Double.POSITIVE_INFINITY
+            for (i in pts.indices) {
+                val prev = pts[(i - 1 + pts.size) % pts.size]
+                val curr = pts[i]
+                val next = pts[(i + 1) % pts.size]
+                val triArea = abs(cross(prev, curr, next)) / 2.0
+                if (triArea < minArea) {
+                    minArea = triArea
+                    minIdx = i
+                }
+            }
+            pts.removeAt(minIdx)
+        }
+        return pts
+    }
 }

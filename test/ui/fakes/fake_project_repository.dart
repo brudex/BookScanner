@@ -52,6 +52,9 @@ class FakeProjectRepository implements ProjectRepository {
   Future<Project?> getProject(String id) async => _projects[id];
 
   @override
+  Future<Set<String>> projectIdsMatchingOcrText(String text) async => {};
+
+  @override
   Future<Project> createProject({
     required ProjectType type,
     required String title,

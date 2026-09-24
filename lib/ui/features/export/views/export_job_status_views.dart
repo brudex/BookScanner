@@ -1,4 +1,9 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../../domain/models/export_job.dart';
@@ -41,6 +46,29 @@ class ExportCompletedView extends StatelessWidget {
   final ExportJob job;
   final AppLocalizations l10n;
 
+  bool get _isPdf =>
+      job.format == ExportFormat.imagePdf ||
+      job.format == ExportFormat.searchablePdf;
+
+  Future<void> _print() async {
+    final path = job.outputPath;
+    if (path == null || !_isPdf) return;
+    final bytes = await File(path).readAsBytes();
+    await Printing.layoutPdf(onLayout: (_) async => bytes);
+  }
+
+  Future<void> _saveAs() async {
+    final path = job.outputPath;
+    if (path == null) return;
+    final bytes = await File(path).readAsBytes();
+    final name = p.basename(path);
+    await FilePicker.saveFile(
+      dialogTitle: l10n.saveAsAction,
+      fileName: name,
+      bytes: bytes,
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Center(
     child: Padding(
@@ -65,6 +93,22 @@ class ExportCompletedView extends StatelessWidget {
             },
             icon: const Icon(Icons.share_outlined),
             label: Text(l10n.share),
+          ),
+          if (_isPdf) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const ValueKey('exportPrintButton'),
+              onPressed: _print,
+              icon: const Icon(Icons.print_outlined),
+              label: Text(l10n.printAction),
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextButton.icon(
+            key: const ValueKey('exportSaveAsButton'),
+            onPressed: _saveAs,
+            icon: const Icon(Icons.save_alt_outlined),
+            label: Text(l10n.saveAsAction),
           ),
         ],
       ),

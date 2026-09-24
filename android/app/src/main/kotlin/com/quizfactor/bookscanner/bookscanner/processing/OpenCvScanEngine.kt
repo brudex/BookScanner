@@ -110,7 +110,15 @@ object OpenCvScanEngine {
         }
         val cropped = applied != null && !OpenCvQuadMath.isNearlyFullFrame(arrayToPairs(applied))
         var page = if (cropped) warp(src, applied!!) else src
-        if (cropped && removeShadows) {
+        // Document filters need paper flattening even on a full-frame still;
+        // otherwise B&W looks like a raw camera threshold of the desk photo.
+        val needsFlatten = removeShadows && (
+            cropped ||
+                filter == "blackAndWhite" ||
+                filter == "grayscale" ||
+                filter == "enhancedColor"
+            )
+        if (needsFlatten) {
             val norm = normalizeIllumination(page)
             if (page !== src) page.release()
             page = norm
@@ -160,13 +168,26 @@ object OpenCvScanEngine {
             val c2f = MatOfPoint2f(*c.toArray())
             val peri = Imgproc.arcLength(c2f, true)
             val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(c2f, approx, 0.02 * peri, true)
+            // Denoise only -- do not require exactly 4 points here. A
+            // curved book edge, a glare break, or a folded corner commonly
+            // makes a real page's contour approximate to 5-8 points rather
+            // than a clean 4 at any single epsilon; requiring an exact
+            // match silently discarded every one of those contours even
+            // when they were otherwise the best candidate in frame. Take
+            // the convex hull of the denoised points instead and reduce
+            // that to 4 corners (same fallback the Dart detector already
+            // uses in page_detection.dart), so a near-quadrilateral is
+            // still usable.
+            Imgproc.approxPolyDP(c2f, approx, 0.01 * peri, true)
             c2f.release()
             val pts = approx.toArray()
             approx.release()
-            if (pts.size != 4) continue
+            if (pts.size < 4) continue
             val norm = pts.map { (it.x / w) to (it.y / h) }
-            val ordered = OpenCvQuadMath.orderCorners(norm)
+            val hull = OpenCvQuadMath.convexHull(norm)
+            if (hull.size < 4) continue
+            val quadPts = if (hull.size == 4) hull else OpenCvQuadMath.reduceToQuad(hull)
+            val ordered = OpenCvQuadMath.orderCorners(quadPts)
             val score = OpenCvQuadMath.score(ordered)
             if (score > bestScore) {
                 bestScore = score
@@ -276,6 +297,8 @@ object OpenCvScanEngine {
             "blackAndWhite" -> {
                 val g = Mat()
                 Imgproc.cvtColor(src, g, Imgproc.COLOR_RGBA2GRAY)
+                // Lift toward white paper before thresholding.
+                g.convertTo(g, -1, 1.35, 18.0)
                 val bw = Mat()
                 Imgproc.adaptiveThreshold(
                     g,
@@ -283,8 +306,8 @@ object OpenCvScanEngine {
                     255.0,
                     Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
                     Imgproc.THRESH_BINARY,
-                    15,
-                    8.0,
+                    25,
+                    10.0,
                 )
                 val out = Mat()
                 Imgproc.cvtColor(bw, out, Imgproc.COLOR_GRAY2RGBA)

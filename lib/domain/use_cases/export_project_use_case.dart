@@ -135,6 +135,23 @@ class ExportProjectUseCase {
 
   Future<void> _updateProgress(ExportJob job, double progress) =>
       _exportJobRepository.updateJob(job.copyWith(progress: progress));
+
+  /// Dry-run size estimate for a compress-quality preview (SPEC 6.5),
+  /// reusing the same page-input loading `export` does without writing a
+  /// job or a file.
+  Future<int> estimatePdfSizeBytes({
+    required String projectId,
+    PdfExportOptions options = const PdfExportOptions(),
+  }) async {
+    final pageInputs = await _pageInputLoader(projectId);
+    final input = ExportDocumentInput(
+      projectId: projectId,
+      title: '',
+      pages: pageInputs,
+      outputPathHint: '',
+    );
+    return _exportProvider.estimatePdfSizeBytes(input, options);
+  }
 }
 
 extension on PdfExportOptions {
@@ -143,6 +160,7 @@ extension on PdfExportOptions {
     orientation: orientation,
     marginPoints: marginPoints,
     imageQuality: imageQuality,
+    maxDimensionPx: maxDimensionPx,
     searchable: searchable,
     password: password,
     ownerPassword: ownerPassword,

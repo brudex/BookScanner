@@ -1,9 +1,15 @@
 import 'dart:async';
 
+import 'package:bookscanner/domain/models/geometry.dart';
 import 'package:bookscanner/domain/models/ocr_block.dart';
+import 'package:bookscanner/domain/models/provider_info.dart';
 import 'package:bookscanner/domain/models/scan_page.dart';
+import 'package:bookscanner/domain/providers/image_enhancement_provider.dart';
+import 'package:bookscanner/domain/providers/page_detection_provider.dart';
 import 'package:bookscanner/domain/repositories/ocr_repository.dart';
+import 'package:bookscanner/domain/repositories/page_path_allocator.dart';
 import 'package:bookscanner/domain/repositories/page_repository.dart';
+import 'package:bookscanner/domain/use_cases/capture_page_use_case.dart';
 import 'package:bookscanner/domain/use_cases/detect_page_anomalies_use_case.dart';
 import 'package:bookscanner/l10n/gen/app_localizations.dart';
 import 'package:bookscanner/ui/features/page_review/view_models/page_review_view_model.dart';
@@ -11,6 +17,48 @@ import 'package:bookscanner/ui/features/page_review/views/page_review_screen.dar
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+// `CapturePageUseCase` is a required PageReviewViewModel dependency (for
+// `revertToOriginal`) but no test in this file exercises that method yet, so
+// these fakes are unused-but-present stand-ins, not exercised behavior.
+class _FakeImageEnhancementProvider implements ImageEnhancementProvider {
+  @override
+  ProviderInfo get info =>
+      const ProviderInfo(providerName: 'fake', adapterVersion: '1.0.0');
+
+  @override
+  Future<EnhancementResult> enhance(EnhancementRequest request) =>
+      throw UnimplementedError();
+
+  @override
+  Future<double> scoreQuality(String imagePath) => throw UnimplementedError();
+}
+
+class _FakePageDetectionProvider implements PageDetectionProvider {
+  @override
+  ProviderInfo get info =>
+      const ProviderInfo(providerName: 'fake', adapterVersion: '1.0.0');
+
+  @override
+  Future<Quad?> detectQuad(String imagePath) => throw UnimplementedError();
+}
+
+class _FakePagePathAllocator implements PagePathAllocator {
+  @override
+  String originalPathFor(String pageId, {required String ext}) =>
+      throw UnimplementedError();
+
+  @override
+  String processedPathFor(String pageId, {required String ext}) =>
+      throw UnimplementedError();
+
+  @override
+  String thumbnailPathFor(String pageId) => throw UnimplementedError();
+
+  @override
+  String exportPathFor(String jobId, String extension) =>
+      throw UnimplementedError();
+}
 
 /// A [PageRepository] whose `watchPages` stream only emits after
 /// `emitPages` is called, so tests can reproduce the real-world race: the
@@ -109,6 +157,12 @@ void main() {
           pageRepository: pageRepository,
           ocrRepository: _FakeOcrRepository(),
         ),
+        capturePageUseCase: CapturePageUseCase(
+          pageRepository: pageRepository,
+          enhancementProvider: _FakeImageEnhancementProvider(),
+          detectionProvider: _FakePageDetectionProvider(),
+          fileStorage: _FakePagePathAllocator(),
+        ),
       );
 
       await tester.pumpWidget(
@@ -117,7 +171,7 @@ void main() {
 
       // First frame: pages haven't arrived yet (still `loading`), so the
       // Export button must start disabled.
-      var exportButton = tester.widget<FilledButton>(
+      var exportButton = tester.widget<IconButton>(
         find.byKey(const ValueKey('reviewExportButton')),
       );
       expect(exportButton.onPressed, isNull);
@@ -128,13 +182,16 @@ void main() {
       await tester.pump();
 
       // Regression check: the Export button previously never re-evaluated
-      // `_viewModel.pages.isEmpty` because `bottomNavigationBar` sat
-      // outside the `body`'s `ListenableBuilder`, so it stayed disabled
-      // forever even once pages genuinely loaded.
-      exportButton = tester.widget<FilledButton>(
+      // `_viewModel.pages.isEmpty` because it sat outside a
+      // `ListenableBuilder`, so it stayed disabled forever even once pages
+      // genuinely loaded.
+      exportButton = tester.widget<IconButton>(
         find.byKey(const ValueKey('reviewExportButton')),
       );
       expect(exportButton.onPressed, isNotNull);
+      expect(find.byKey(const ValueKey('reviewAddCamera')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reviewAddGallery')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reviewAddFromFiles')), findsOneWidget);
     },
   );
 
@@ -157,6 +214,12 @@ void main() {
         detectAnomaliesUseCase: DetectPageAnomaliesUseCase(
           pageRepository: pageRepository,
           ocrRepository: _FakeOcrRepository(),
+        ),
+        capturePageUseCase: CapturePageUseCase(
+          pageRepository: pageRepository,
+          enhancementProvider: _FakeImageEnhancementProvider(),
+          detectionProvider: _FakePageDetectionProvider(),
+          fileStorage: _FakePagePathAllocator(),
         ),
       );
 

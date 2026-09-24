@@ -6,6 +6,15 @@ enum PageStatus { capturing, processing, ready, needsRescan, error }
 
 enum PageFilter { original, enhancedColor, grayscale, blackAndWhite, photo }
 
+/// Default look for newly captured pages: enhanced/document color — the
+/// industry-standard scanner look (whitish paper, stronger contrast, light
+/// color kept). Not hard B&W; users can still pick B&W in adjust.
+///
+/// The raw camera still is retained for future crop/filter (SPEC 6.2);
+/// library/review show [ScanPage.processedImagePath] until the user opens
+/// an edit surface (crop uses the original).
+const PageFilter kDefaultCaptureFilter = PageFilter.enhancedColor;
+
 /// Pipeline stages tracked independently per SPEC 9.5: "Each pipeline stage
 /// stores its version and output. Changing a crop or filter invalidates only
 /// dependent stages."
@@ -26,8 +35,8 @@ class StageRecord {
 }
 
 /// A single scanned page (SPEC 10). Original image is retained until the
-/// user explicitly deletes it (SPEC 6.2 "Page-level undo and access to the
-/// original image until the user deletes it").
+/// user explicitly deletes it (SPEC 6.2) so crop/filter can re-derive from
+/// the camera still; UI surfaces show [processedImagePath] by default.
 class ScanPage {
   const ScanPage({
     required this.id,
@@ -40,10 +49,12 @@ class ScanPage {
     this.thumbnailPath,
     this.cropPoints,
     this.rotationDegrees = 0,
+    this.fineRotationDegrees = 0,
     this.filter = PageFilter.original,
     this.brightness = 0,
     this.contrast = 0,
     this.sharpness = 0,
+    this.threshold = 0.5,
     this.qualityScore,
     this.warnings = const {},
     this.duplicateOfPageId,
@@ -71,10 +82,18 @@ class ScanPage {
 
   final Quad? cropPoints;
   final int rotationDegrees;
+
+  /// Additional arbitrary-angle rotation (-45..45 degrees), applied after
+  /// the 90-degree-increment [rotationDegrees] (SPEC 6.2 fine rotation).
+  final double fineRotationDegrees;
   final PageFilter filter;
   final double brightness;
   final double contrast;
   final double sharpness;
+
+  /// Binarization cutoff (0.0-1.0) used only by [PageFilter.blackAndWhite]
+  /// (SPEC 6.2 "adjustable... threshold").
+  final double threshold;
 
   /// 0.0-1.0; null until quality analysis completes.
   final double? qualityScore;
@@ -99,6 +118,13 @@ class ScanPage {
           .difference(dismissedWarnings.map(_warningFromName).toSet())
           .isNotEmpty;
 
+  /// True when a distinct raw camera file still exists separately from the
+  /// baked scan. After enhance, both paths usually match and revert is a no-op.
+  bool get hasDistinctOriginal =>
+      processedImagePath != null &&
+      processedImagePath!.isNotEmpty &&
+      processedImagePath != originalImagePath;
+
   static QualityWarning _warningFromName(String name) =>
       QualityWarning.values.byName(name);
 
@@ -110,10 +136,12 @@ class ScanPage {
     String? thumbnailPath,
     Quad? cropPoints,
     int? rotationDegrees,
+    double? fineRotationDegrees,
     PageFilter? filter,
     double? brightness,
     double? contrast,
     double? sharpness,
+    double? threshold,
     double? qualityScore,
     Set<QualityWarning>? warnings,
     String? duplicateOfPageId,
@@ -135,10 +163,12 @@ class ScanPage {
     thumbnailPath: thumbnailPath ?? this.thumbnailPath,
     cropPoints: cropPoints ?? this.cropPoints,
     rotationDegrees: rotationDegrees ?? this.rotationDegrees,
+    fineRotationDegrees: fineRotationDegrees ?? this.fineRotationDegrees,
     filter: filter ?? this.filter,
     brightness: brightness ?? this.brightness,
     contrast: contrast ?? this.contrast,
     sharpness: sharpness ?? this.sharpness,
+    threshold: threshold ?? this.threshold,
     qualityScore: qualityScore ?? this.qualityScore,
     warnings: warnings ?? this.warnings,
     duplicateOfPageId: (clearDuplicateOfPageId ?? false)

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'support/post_capture_helpers.dart';
+
 /// SPEC 13: "Integration tests must cover: first launch/permissions,
 /// document capture with a fake adapter, ...". This first slice covers the
 /// first-launch → new-scan → capture-permission-flow path, which is
@@ -52,21 +54,18 @@ void main() {
       );
 
       if (sawShutter.evaluate().isNotEmpty) {
-        // Permission already granted (e.g. a prior manual test run on this
-        // emulator/simulator granted it): exercise the real "Done" -> close
-        // session -> navigate-to-review path. This is the exact path that
-        // previously threw a spurious ProviderException from
-        // NativeCaptureProvider.closeSession on every successful void
-        // platform-channel call and silently aborted the navigation.
+        // Permission already granted: capture one page, then Continue →
+        // post-capture polish → name → review. Also exercises
+        // NativeCaptureProvider.closeSession (void channel) on leave.
+        await tester.tap(find.byKey(const ValueKey('shutterButton')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
+
         await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
         await tester.pumpAndSettle();
-        // "Done" now prompts to name the scan (defaulted to a timestamp)
-        // before navigating -- accept the default rather than typing a name.
+        await advancePostCapturePage(tester);
         await tester.tap(find.byKey(const ValueKey('captureNameSaveButton')));
         await tester.pumpAndSettle();
-        // Present on the Review screen regardless of page count (0 pages
-        // shows a text placeholder instead of `pageReviewList`), so this
-        // confirms navigation away from Capture actually happened.
         expect(
           find.byKey(const ValueKey('reviewAddPageButton')),
           findsOneWidget,

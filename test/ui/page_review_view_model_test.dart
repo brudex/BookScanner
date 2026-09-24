@@ -1,10 +1,58 @@
+import 'package:bookscanner/domain/models/geometry.dart';
 import 'package:bookscanner/domain/models/ocr_block.dart';
+import 'package:bookscanner/domain/models/provider_info.dart';
 import 'package:bookscanner/domain/models/scan_page.dart';
+import 'package:bookscanner/domain/providers/image_enhancement_provider.dart';
+import 'package:bookscanner/domain/providers/page_detection_provider.dart';
 import 'package:bookscanner/domain/repositories/ocr_repository.dart';
+import 'package:bookscanner/domain/repositories/page_path_allocator.dart';
 import 'package:bookscanner/domain/repositories/page_repository.dart';
+import 'package:bookscanner/domain/use_cases/capture_page_use_case.dart';
 import 'package:bookscanner/domain/use_cases/detect_page_anomalies_use_case.dart';
 import 'package:bookscanner/ui/features/page_review/view_models/page_review_view_model.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+// `CapturePageUseCase` is a required PageReviewViewModel dependency (for
+// `revertToOriginal`) but no test in this file exercises that method yet, so
+// these fakes are unused-but-present stand-ins, not exercised behavior.
+class _FakeImageEnhancementProvider implements ImageEnhancementProvider {
+  @override
+  ProviderInfo get info =>
+      const ProviderInfo(providerName: 'fake', adapterVersion: '1.0.0');
+
+  @override
+  Future<EnhancementResult> enhance(EnhancementRequest request) =>
+      throw UnimplementedError();
+
+  @override
+  Future<double> scoreQuality(String imagePath) => throw UnimplementedError();
+}
+
+class _FakePageDetectionProvider implements PageDetectionProvider {
+  @override
+  ProviderInfo get info =>
+      const ProviderInfo(providerName: 'fake', adapterVersion: '1.0.0');
+
+  @override
+  Future<Quad?> detectQuad(String imagePath) => throw UnimplementedError();
+}
+
+class _FakePagePathAllocator implements PagePathAllocator {
+  @override
+  String originalPathFor(String pageId, {required String ext}) =>
+      throw UnimplementedError();
+
+  @override
+  String processedPathFor(String pageId, {required String ext}) =>
+      throw UnimplementedError();
+
+  @override
+  String thumbnailPathFor(String pageId) => throw UnimplementedError();
+
+  @override
+  String exportPathFor(String jobId, String extension) =>
+      throw UnimplementedError();
+}
 
 // PageReviewViewModel had no dedicated unit tests before this file --
 // reorder/rotate/duplicate/delete/gridView were only reachable (and only
@@ -110,6 +158,12 @@ void main() {
         pageRepository: pageRepository,
         ocrRepository: _FakeOcrRepository(),
       ),
+      capturePageUseCase: CapturePageUseCase(
+        pageRepository: pageRepository,
+        enhancementProvider: _FakeImageEnhancementProvider(),
+        detectionProvider: _FakePageDetectionProvider(),
+        fileStorage: _FakePagePathAllocator(),
+      ),
     );
     // watchPages() emits asynchronously (via a microtask) -- wait a beat so
     // the ViewModel's internal `_pages` list is populated before each test
@@ -172,5 +226,20 @@ void main() {
       pageRepository.pages['p1']!.dismissedWarnings,
       contains('duplicate'),
     );
+  });
+
+  test('setLogicalPageLabel persists a free-form cover/Roman label', () async {
+    final page = pageRepository.pages['p1']!;
+    await viewModel.setLogicalPageLabel(page, 'iii');
+
+    expect(pageRepository.pages['p1']!.logicalPageLabel, 'iii');
+  });
+
+  test('setLogicalPageLabel clears blank labels', () async {
+    final page = pageRepository.pages['p1']!;
+    await viewModel.setLogicalPageLabel(page, 'Cover');
+    await viewModel.setLogicalPageLabel(page, '   ');
+
+    expect(pageRepository.pages['p1']!.logicalPageLabel, isNull);
   });
 }

@@ -61,6 +61,9 @@ class _FakeProjectRepository implements ProjectRepository {
   Future<Project?> getProject(String id) async => nextProject;
 
   @override
+  Future<Set<String>> projectIdsMatchingOcrText(String text) async => {};
+
+  @override
   Stream<Project?> watchProject(String id) => Stream.value(nextProject);
 
   @override

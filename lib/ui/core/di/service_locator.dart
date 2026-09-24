@@ -19,8 +19,7 @@ import '../../../data/services/ocr/ocr_platform_channel.dart';
 import '../../../data/services/scanner/adapters/dart_book_dewarp_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_image_enhancement_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_page_detection_provider.dart';
-import '../../../data/services/scanner/adapters/native_capture_provider.dart';
-import '../../../data/services/scanner/scanner_platform_channel.dart';
+import '../../../data/services/scanner/adapters/camera_package_capture_provider.dart';
 import '../../../data/services/scanner/vision_platform_channel.dart';
 import '../../../domain/providers/book_dewarp_provider.dart';
 import '../../../domain/providers/capture_provider.dart';
@@ -38,12 +37,14 @@ import '../../../domain/repositories/settings_repository.dart';
 import '../../../domain/repositories/working_session_path_allocator.dart';
 import '../../../domain/use_cases/capture_page_use_case.dart';
 import '../../../domain/use_cases/detect_page_anomalies_use_case.dart';
+import '../../../domain/use_cases/export_images_use_case.dart';
 import '../../../domain/use_cases/export_page_inputs_use_case.dart';
 import '../../../domain/use_cases/export_project_use_case.dart';
 import '../../../domain/use_cases/load_page_source_use_case.dart';
 import '../../../domain/use_cases/load_project_page_inputs_use_case.dart';
 import '../../../domain/use_cases/process_book_spread_use_case.dart';
 import '../../../domain/use_cases/run_ocr_use_case.dart';
+import '../app_lock_controller.dart';
 
 final GetIt locator = GetIt.instance;
 
@@ -71,6 +72,7 @@ Future<void> setupServiceLocator() async {
   locator.registerSingleton<SettingsRepository>(
     SettingsRepositoryImpl(database),
   );
+  locator.registerSingleton<AppLockController>(AppLockController());
 
   locator.registerFactory<CaptureProvider>(() => _selectCaptureProvider());
   locator.registerSingleton<OcrProvider>(_selectOcrProvider());
@@ -135,6 +137,15 @@ Future<void> setupServiceLocator() async {
       pageInputLoader: locator<LoadProjectPageInputsUseCase>(),
     ),
   );
+  locator.registerFactory<ExportImagesUseCase>(
+    () => ExportImagesUseCase(
+      pageRepository: locator<PageRepository>(),
+      ocrRepository: locator<OcrRepository>(),
+      exportProvider: locator<DocumentExportProvider>(),
+      paths: locator<AppPaths>(),
+      pageInputLoader: locator<LoadProjectPageInputsUseCase>(),
+    ),
+  );
   locator.registerFactory<LoadPageSourceUseCase>(
     () => LoadPageSourceUseCase(
       projectLoader: locator<LoadProjectPageInputsUseCase>(),
@@ -159,20 +170,13 @@ Future<void> setupServiceLocator() async {
   );
 }
 
-/// Selects the capture provider by platform (SPEC 9.7 capability discovery).
-/// Android and iOS get their real native adapter; any other platform this
-/// app happens to run on during development (macOS desktop, for example)
-/// gets no capture provider at all — capture features must check
-/// [CaptureProvider.capabilities] and degrade gracefully rather than assume
-/// availability, matching the SPEC 9.7 "Provider replaceability" acceptance
-/// criterion.
+/// Documents and books both use the official `camera` package so the
+/// capture screen can show a live preview, edge overlay, and auto-capture
+/// (SPEC 5.1, 5.2, 9.6). `cunning_document_scanner` remains in the tree as
+/// a fallback adapter, not the primary UI.
 CaptureProvider _selectCaptureProvider() {
-  final channel = ScannerPlatformChannel();
-  if (Platform.isAndroid) {
-    return NativeCaptureProvider(channel, platformLabel: 'android');
-  }
-  if (Platform.isIOS) {
-    return NativeCaptureProvider(channel, platformLabel: 'ios');
+  if (Platform.isAndroid || Platform.isIOS) {
+    return CameraPackageCaptureProvider(paths: locator<AppPaths>());
   }
   throw UnsupportedError(
     'No capture provider is registered for this platform. '

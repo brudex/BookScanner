@@ -173,10 +173,12 @@ class PageRepositoryImpl implements PageRepository {
         ? null
         : jsonEncode(page.cropPoints!.toJson()),
     'rotation_degrees': page.rotationDegrees,
+    'fine_rotation_degrees': page.fineRotationDegrees,
     'filter': page.filter.name,
     'brightness': page.brightness,
     'contrast': page.contrast,
     'sharpness': page.sharpness,
+    'threshold': page.threshold,
     'quality_score': page.qualityScore,
     'warnings': jsonEncode(page.warnings.map((w) => w.name).toList()),
     'duplicate_of_page_id': page.duplicateOfPageId,
@@ -216,10 +218,13 @@ class PageRepositoryImpl implements PageRepository {
               (jsonDecode(cropJson) as Map).cast<String, Object?>(),
             ),
       rotationDegrees: row['rotation_degrees']! as int,
+      fineRotationDegrees: (row['fine_rotation_degrees'] as num? ?? 0)
+          .toDouble(),
       filter: PageFilter.values.byName(row['filter']! as String),
       brightness: (row['brightness']! as num).toDouble(),
       contrast: (row['contrast']! as num).toDouble(),
       sharpness: (row['sharpness']! as num).toDouble(),
+      threshold: (row['threshold'] as num? ?? 0.5).toDouble(),
       qualityScore: (row['quality_score'] as num?)?.toDouble(),
       warnings: JsonCodecHelpers.decodeStringList(
         row['warnings'] as String?,

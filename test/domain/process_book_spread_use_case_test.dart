@@ -363,7 +363,7 @@ void main() {
     },
   );
 
-  test('already-split halves are enhanced with splitOpenBook: false', () async {
+  test('already-split halves skip crop re-detect (full-frame page image)', () async {
     await useCase.processCapture(
       capture: buildCapture(),
       projectId: 'proj1',
@@ -372,6 +372,39 @@ void main() {
 
     expect(enhancementProvider.lastRequest, isNotNull);
     expect(enhancementProvider.lastRequest!.splitOpenBook, isFalse);
-    expect(enhancementProvider.lastRequest!.detectCrop, isTrue);
+    expect(enhancementProvider.lastRequest!.detectCrop, isFalse);
   });
+
+  test('processSinglePage also skips crop detect — full pic before crop UI', () async {
+    final pages = await useCase.processSinglePage(
+      capture: buildCapture(),
+      projectId: 'proj1',
+      sequence: 0,
+    );
+
+    expect(enhancementProvider.lastRequest, isNotNull);
+    expect(enhancementProvider.lastRequest!.detectCrop, isFalse);
+    expect(enhancementProvider.lastRequest!.splitOpenBook, isFalse);
+    expect(pages.single.cropPoints, Quad.fullFrame);
+  });
+
+  test(
+    'processSinglePage persists one dewarped page without a spread sibling',
+    () async {
+      final pages = await useCase.processSinglePage(
+        capture: buildCapture(),
+        projectId: 'proj1',
+        sequence: 3,
+      );
+
+      expect(pages, hasLength(1));
+      expect(pages.single.sequence, 3);
+      expect(pages.single.spreadSiblingPageId, isNull);
+      expect(pages.single.stages[PipelineStage.split], isNull);
+      expect(pages.single.stages[PipelineStage.dewarp], isNotNull);
+      expect(dewarpProvider.splitCalls, 0);
+      expect(dewarpProvider.dewarpCalls, 1);
+      expect(pageRepository.pages, hasLength(1));
+    },
+  );
 }

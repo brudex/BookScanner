@@ -54,10 +54,12 @@ class DartImageEnhancementProvider implements ImageEnhancementProvider {
       thumbnailPath: thumbnailPath,
       cropPoints: request.cropPoints,
       rotationDegrees: request.rotationDegrees,
+      fineRotationDegrees: request.fineRotationDegrees,
       filter: request.filter,
       brightness: request.brightness,
       contrast: request.contrast,
       sharpness: request.sharpness,
+      threshold: request.threshold,
       removeShadowsAndStains: request.removeShadowsAndStains,
       detectCrop: request.detectCrop,
       splitOpenBook: request.splitOpenBook,
@@ -88,10 +90,12 @@ class _EnhancementJob {
     required this.thumbnailPath,
     required this.cropPoints,
     required this.rotationDegrees,
+    required this.fineRotationDegrees,
     required this.filter,
     required this.brightness,
     required this.contrast,
     required this.sharpness,
+    required this.threshold,
     required this.removeShadowsAndStains,
     required this.detectCrop,
     required this.splitOpenBook,
@@ -102,10 +106,12 @@ class _EnhancementJob {
   final String thumbnailPath;
   final Quad cropPoints;
   final int rotationDegrees;
+  final double fineRotationDegrees;
   final PageFilter filter;
   final double brightness;
   final double contrast;
   final double sharpness;
+  final double threshold;
   final bool removeShadowsAndStains;
   final bool detectCrop;
   final bool splitOpenBook;
@@ -152,16 +158,29 @@ _EnhancementJobResult _runEnhancementJob(_EnhancementJob job) {
   if (job.rotationDegrees != 0) {
     decoded = img.copyRotate(decoded, angle: job.rotationDegrees);
   }
+  if (job.fineRotationDegrees != 0) {
+    decoded = img.copyRotate(
+      decoded,
+      angle: job.fineRotationDegrees.clamp(-45, 45),
+      interpolation: img.Interpolation.linear,
+    );
+  }
 
-  // Flattening walks every pixel of the still in Dart. On a missed crop
-  // that's a full ~12MP photo and the slowest path; skip it unless we
-  // actually isolated a page.
-  if (cropped && job.removeShadowsAndStains) {
+  // Flatten paper lighting before document filters. B&W/grayscale look
+  // "raw" on a camera still unless illumination is normalized first —
+  // even when detection fell back to full-frame (no crop).
+  final needsPaperFlatten =
+      job.removeShadowsAndStains &&
+      (cropped ||
+          job.filter == PageFilter.blackAndWhite ||
+          job.filter == PageFilter.grayscale ||
+          job.filter == PageFilter.enhancedColor);
+  if (needsPaperFlatten) {
     decoded = _flattenIllumination(decoded);
     decoded = img.gaussianBlur(decoded, radius: 1);
   }
 
-  decoded = _applyFilter(decoded, job.filter);
+  decoded = _applyFilter(decoded, job.filter, job.threshold);
 
   if (job.brightness != 0 || job.contrast != 0) {
     decoded = img.adjustColor(
@@ -186,7 +205,14 @@ _EnhancementJobResult _runEnhancementJob(_EnhancementJob job) {
         0,
       ],
     );
-  } else if (cropped) {
+  } else {
+    // Applied regardless of `cropped` (unlike the shadow-flatten step
+    // above, which stays gated for performance): this is a cheap 3x3
+    // kernel, not a full-frame blur, so it's safe to always run. Without
+    // it, a page whose background border was too thin to detect (see
+    // page_detection.dart) got literally zero processing beyond a JPEG
+    // re-encode -- "the scanned version" looked identical to the raw
+    // photo, which is exactly what this default light sharpen fixes.
     decoded = img.convolution(
       decoded,
       filter: const [0, -0.5, 0, -0.5, 3, -0.5, 0, -0.5, 0],
@@ -336,35 +362,46 @@ double _normalizeChannel(double value, double background) {
   return normalized.clamp(0, 255);
 }
 
-img.Image _applyFilter(img.Image src, PageFilter filter) => switch (filter) {
-  PageFilter.original => src,
-  PageFilter.enhancedColor => img.adjustColor(
-    src,
-    contrast: 1.18,
-    saturation: 1.12,
-    brightness: 1.02,
-  ),
-  PageFilter.grayscale => img.grayscale(src),
-  PageFilter.blackAndWhite => _adaptiveThreshold(src),
-  PageFilter.photo => img.adjustColor(
-    src,
-    contrast: 1.05,
-    saturation: 1.05,
-    brightness: 1.02,
-  ),
-};
+img.Image _applyFilter(img.Image src, PageFilter filter, double threshold) =>
+    switch (filter) {
+      PageFilter.original => src,
+      PageFilter.enhancedColor => img.adjustColor(
+        src,
+        contrast: 1.18,
+        saturation: 1.12,
+        brightness: 1.02,
+      ),
+      PageFilter.grayscale => img.grayscale(src),
+      PageFilter.blackAndWhite => _adaptiveThreshold(src, threshold),
+      PageFilter.photo => img.adjustColor(
+        src,
+        contrast: 1.05,
+        saturation: 1.05,
+        brightness: 1.02,
+      ),
+    };
 
-img.Image _adaptiveThreshold(img.Image src) {
+/// Soft document B&W (TapScanner-style whitish paper): normalize is applied
+/// upstream; here we lift the page toward white and keep ink dark without
+/// the harsh salt-and-pepper of a pure 1-bit adaptive threshold.
+/// [threshold] (0.0-1.0) still shifts how aggressive the ink cutoff is.
+img.Image _adaptiveThreshold(img.Image src, double threshold) {
   final gray = img.grayscale(src);
-  const block = 15;
-  const c = 8;
-  final w = gray.width;
-  final h = gray.height;
+  // Mild contrast stretch toward a white page before binarizing.
+  final lifted = img.adjustColor(
+    gray,
+    contrast: 1.35,
+    brightness: 1.08,
+  );
+  const block = 25;
+  final c = 10 + (0.5 - threshold.clamp(0.0, 1.0)) * 40;
+  final w = lifted.width;
+  final h = lifted.height;
   final integral = List<int>.filled((w + 1) * (h + 1), 0);
   for (var y = 1; y <= h; y++) {
     var row = 0;
     for (var x = 1; x <= w; x++) {
-      row += gray.getPixel(x - 1, y - 1).r.toInt();
+      row += lifted.getPixel(x - 1, y - 1).r.toInt();
       integral[y * (w + 1) + x] = integral[(y - 1) * (w + 1) + x] + row;
     }
   }
@@ -376,7 +413,7 @@ img.Image _adaptiveThreshold(img.Image src) {
   }
 
   final half = block ~/ 2;
-  final out = img.Image.from(gray);
+  final out = img.Image.from(lifted);
   for (var y = 0; y < h; y++) {
     final y0 = (y - half).clamp(0, h - 1);
     final y1 = (y + half).clamp(0, h - 1) + 1;
@@ -385,7 +422,10 @@ img.Image _adaptiveThreshold(img.Image src) {
       final x1 = (x + half).clamp(0, w - 1) + 1;
       final area = (x1 - x0) * (y1 - y0);
       final mean = area == 0 ? 128 : sumRect(x0, y0, x1, y1) / area;
-      final v = gray.getPixel(x, y).r > mean - c ? 255 : 0;
+      final pixel = lifted.getPixel(x, y).r;
+      // Soft binary: near-white paper (245) and near-black ink (20) instead
+      // of pure 255/0, which reads less "raw photocopier".
+      final v = pixel > mean - c ? 245 : 20;
       out.setPixelRgb(x, y, v, v, v);
     }
   }

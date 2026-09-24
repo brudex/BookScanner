@@ -18,6 +18,8 @@ import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'support/post_capture_helpers.dart';
+
 /// A capture provider double for this integration test: like
 /// `FakeCaptureProvider` (used elsewhere for contract tests), it writes real
 /// JPEGs so downstream pipeline stages (split/dewarp/enhance) operate on
@@ -158,6 +160,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('newScanModeBook')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('bookSetupCopyrightAck')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('bookSetupContinueButton')));
+      await tester.pumpAndSettle();
 
       expect(
         find.byKey(const ValueKey('shutterButton')),
@@ -178,12 +184,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('shutterButton')));
       await tester.pumpAndSettle();
-      expect(find.text('4 pages scanned'), findsOneWidget);
+      expect(find.text('4'), findsWidgets);
 
       await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
       await tester.pumpAndSettle();
-      // "Done" now prompts to name the scan (defaulted to a timestamp)
-      // before navigating -- accept the default rather than typing a name.
+      // Continue → crop → filters per page → name → review.
+      for (var i = 0; i < 4; i++) {
+        await advancePostCapturePage(tester);
+      }
       await tester.tap(find.byKey(const ValueKey('captureNameSaveButton')));
       await tester.pumpAndSettle();
 

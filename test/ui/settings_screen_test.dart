@@ -126,4 +126,148 @@ void main() {
     expect(settingsRepository.updateCalls, hasLength(1));
     expect(settingsRepository.updateCalls.single.modelTrainingOptIn, isTrue);
   });
+
+  testWidgets('renders capture settings rows with their defaults', (
+    tester,
+  ) async {
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(_wrap(SettingsScreen(viewModel: viewModel)));
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settingsCountdownTile')),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('settingsCountdownTile')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settingsContinuousCaptureSwitch')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('settingsHapticConfirmationSwitch')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settingsAudioConfirmationSwitch')),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('settingsAudioConfirmationSwitch')),
+      findsOneWidget,
+    );
+
+    final continuousSwitch = tester.widget<SwitchListTile>(
+      find.byKey(const ValueKey('settingsContinuousCaptureSwitch')),
+    );
+    expect(continuousSwitch.value, isFalse);
+    final hapticSwitch = tester.widget<SwitchListTile>(
+      find.byKey(const ValueKey('settingsHapticConfirmationSwitch')),
+    );
+    expect(hapticSwitch.value, isTrue);
+    final dropdown = tester.widget<DropdownButton<int>>(
+      find.byKey(const ValueKey('settingsCountdownDropdown')),
+    );
+    expect(dropdown.value, 0);
+  });
+
+  testWidgets('changing the countdown dropdown persists the value', (
+    tester,
+  ) async {
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(_wrap(SettingsScreen(viewModel: viewModel)));
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settingsCountdownDropdown')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('settingsCountdownDropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5s').last);
+    await tester.pumpAndSettle();
+
+    expect(viewModel.settings.captureSettings.countdownSeconds, 5);
+    expect(
+      settingsRepository.updateCalls.last.captureSettings.countdownSeconds,
+      5,
+    );
+  });
+
+  testWidgets('toggling continuous capture persists the change', (
+    tester,
+  ) async {
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(_wrap(SettingsScreen(viewModel: viewModel)));
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settingsContinuousCaptureSwitch')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('settingsContinuousCaptureSwitch')),
+    );
+    await tester.pump();
+
+    expect(viewModel.settings.captureSettings.continuousCapture, isTrue);
+    expect(
+      settingsRepository.updateCalls.last.captureSettings.continuousCapture,
+      isTrue,
+    );
+  });
+
+  testWidgets('toggling haptic and audio confirmation persists the change', (
+    tester,
+  ) async {
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(_wrap(SettingsScreen(viewModel: viewModel)));
+    await tester.pump();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settingsHapticConfirmationSwitch')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('settingsHapticConfirmationSwitch')),
+    );
+    await tester.pump();
+    expect(viewModel.settings.captureSettings.hapticConfirmation, isFalse);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('settingsAudioConfirmationSwitch')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('settingsAudioConfirmationSwitch')),
+    );
+    await tester.pump();
+    expect(viewModel.settings.captureSettings.audioConfirmation, isFalse);
+
+    expect(
+      settingsRepository.updateCalls.last.captureSettings.audioConfirmation,
+      isFalse,
+    );
+  });
+
+  testWidgets('OCR languages tile opens sheet and toggles Spanish', (
+    tester,
+  ) async {
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(_wrap(SettingsScreen(viewModel: viewModel)));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('settingsOcrLanguagesTile')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('settingsOcrLanguagesTile')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('ocrLanguage-es')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('ocrLanguage-es')));
+    await tester.pump();
+
+    expect(viewModel.settings.ocrLanguages, containsAll(['en', 'es']));
+  });
 }

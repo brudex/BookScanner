@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../domain/models/project.dart';
 import '../../../../domain/repositories/project_repository.dart';
@@ -13,6 +14,12 @@ import '../../../core/di/service_locator.dart';
 /// single page.
 class NewScanSheetRoute extends StatefulWidget {
   const NewScanSheetRoute({super.key});
+
+  /// Book projects collect optional metadata first (SPEC 5.2 step 2).
+  /// Documents go straight to capture.
+  static String afterCreate(Project project) => project.type == ProjectType.book
+      ? AppRoutes.bookSetupFor(project.id)
+      : AppRoutes.captureFor(project.id);
 
   @override
   State<NewScanSheetRoute> createState() => _NewScanSheetRouteState();
@@ -34,12 +41,7 @@ class _NewScanSheetRouteState extends State<NewScanSheetRoute> {
       title: defaultTitle,
     );
     if (!mounted) return;
-    // `pushReplacement`, not `go`: `go` replaces the whole route stack, which
-    // stripped Library out of the back stack entirely -- there was no way
-    // back to the project list from Capture/Review afterward. This mode
-    // picker's job is done once a project exists, so it's the right screen
-    // to replace; Library underneath stays intact.
-    context.pushReplacement(AppRoutes.captureFor(project.id));
+    context.pushReplacement(NewScanSheetRoute.afterCreate(project));
   }
 
   @override
@@ -55,7 +57,7 @@ class _NewScanSheetRouteState extends State<NewScanSheetRoute> {
                 children: [
                   _ModeCard(
                     key: const ValueKey('newScanModeDocument'),
-                    icon: Icons.description_outlined,
+                    icon: LucideIcons.fileText,
                     title: l10n.modeDocument,
                     subtitle: l10n.modeDocumentSubtitle,
                     onTap: () => _createAndGo(ProjectType.document),
@@ -63,7 +65,7 @@ class _NewScanSheetRouteState extends State<NewScanSheetRoute> {
                   const SizedBox(height: 16),
                   _ModeCard(
                     key: const ValueKey('newScanModeBook'),
-                    icon: Icons.menu_book_outlined,
+                    icon: LucideIcons.bookOpen,
                     title: l10n.modeBook,
                     subtitle: l10n.modeBookSubtitle,
                     onTap: () => _createAndGo(ProjectType.book),

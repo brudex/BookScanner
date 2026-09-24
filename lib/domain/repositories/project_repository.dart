@@ -30,6 +30,11 @@ abstract interface class ProjectRepository {
 
   Stream<Project?> watchProject(String id);
 
+  /// Ids of non-trashed projects with at least one recognized OCR block
+  /// whose text contains [text] (case-insensitive), for library search
+  /// across scanned content (SPEC 6.8) rather than just the title.
+  Future<Set<String>> projectIdsMatchingOcrText(String text);
+
   Future<Project?> getProject(String id);
 
   Future<Project> createProject({

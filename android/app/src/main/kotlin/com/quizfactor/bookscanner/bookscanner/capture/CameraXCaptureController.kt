@@ -2,9 +2,8 @@ package com.quizfactor.bookscanner.bookscanner.capture
 
 import android.app.Activity
 import android.content.Context
-import android.graphics.SurfaceTexture
 import android.media.MediaActionSound
-import android.util.Rational
+import android.util.Log
 import android.util.Size
 import android.view.Surface
 import androidx.camera.core.Camera
@@ -16,8 +15,6 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.SurfaceRequest
-import androidx.camera.core.UseCaseGroup
-import androidx.camera.core.ViewPort
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -68,13 +65,19 @@ class CameraXCaptureController(
     private val lifecycleOwner: LifecycleOwner,
     private val textureRegistry: TextureRegistry,
 ) {
+    companion object {
+        private const val TAG = "CameraXCapture"
+    }
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
     private var imageAnalysis: ImageAnalysis? = null
+    // Skia GLES + SurfaceTexture. Impeller Vulkan cannot sample a
+    // SurfaceTexture, and the API-29+ ImageReader SurfaceProducer stays
+    // black with CameraX Preview on this device (ImageAnalysis still runs).
+    // Impeller is disabled in AndroidManifest until that path works.
     private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
     private var analyzer: CaptureAnalyzer? = null
-    private var previewSurface: Surface? = null
 
     private val analysisExecutor: Executor = Executors.newSingleThreadExecutor()
     private val mainExecutor: Executor = ContextCompat.getMainExecutor(context)
@@ -105,16 +108,28 @@ class CameraXCaptureController(
 
     suspend fun open(): OpenSessionResult {
         OpenCvScanEngine.init()
+        close()
         val provider = getOrCreateProvider()
 
         val entry = textureRegistry.createSurfaceTexture()
         textureEntry = entry
 
         val preview = Preview.Builder().build()
-        preview.setSurfaceProvider(mainExecutor) { request -> bindPreviewSurface(entry.surfaceTexture(), request) }
+        preview.setSurfaceProvider(mainExecutor) { request ->
+            bindPreviewSurface(entry, request)
+        }
 
+        val analysisResolution = ResolutionSelector.Builder()
+            .setResolutionStrategy(
+                ResolutionStrategy(
+                    Size(1280, 720),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                ),
+            )
+            .build()
         val analysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setResolutionSelector(analysisResolution)
             .build()
         val captureAnalyzer = CaptureAnalyzer { result ->
             lastAnalysis = result
@@ -143,23 +158,24 @@ class CameraXCaptureController(
         } else {
             Surface.ROTATION_0
         }
+        preview.targetRotation = rotation
+        analysis.targetRotation = rotation
+        capture.targetRotation = rotation
         previewAspectRatio = 4.0 / 3.0
-        val viewPort = ViewPort.Builder(Rational(4, 3), rotation)
-            .setScaleType(ViewPort.FILL_CENTER)
-            .build()
-        val group = UseCaseGroup.Builder()
-            .setViewPort(viewPort)
-            .addUseCase(preview)
-            .addUseCase(analysis)
-            .addUseCase(capture)
-            .build()
 
         provider.unbindAll()
-        camera = provider.bindToLifecycle(
-            lifecycleOwner,
-            CameraSelector.DEFAULT_BACK_CAMERA,
-            group,
-        )
+        try {
+            camera = provider.bindToLifecycle(
+                lifecycleOwner,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                preview,
+                analysis,
+                capture,
+            )
+        } catch (e: Exception) {
+            close()
+            throw CaptureError.UnsupportedDevice(e.message ?: "Cannot bind camera")
+        }
 
         val cam = camera
         if (cam != null) {
@@ -175,10 +191,18 @@ class CameraXCaptureController(
         return OpenSessionResult(entry.id(), previewAspectRatio)
     }
 
-    private fun bindPreviewSurface(surfaceTexture: SurfaceTexture, request: SurfaceRequest) {
+    private fun bindPreviewSurface(
+        entry: TextureRegistry.SurfaceTextureEntry,
+        request: SurfaceRequest,
+    ) {
+        val surfaceTexture = entry.surfaceTexture()
         surfaceTexture.setDefaultBufferSize(request.resolution.width, request.resolution.height)
         val surface = Surface(surfaceTexture)
-        previewSurface = surface
+        Log.i(
+            TAG,
+            "Providing preview SurfaceTexture ${request.resolution.width}x${request.resolution.height} " +
+                "textureId=${entry.id()}",
+        )
         request.provideSurface(surface, mainExecutor) {
             surface.release()
         }
@@ -289,7 +313,6 @@ class CameraXCaptureController(
         camera = null
         textureEntry?.release()
         textureEntry = null
-        previewSurface = null
     }
 
     fun shutdown() {

@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../../domain/models/geometry.dart';
 import '../../../../domain/models/scan_page.dart';
 import '../../../../domain/repositories/page_repository.dart';
+import '../../../../domain/use_cases/capture_page_use_case.dart';
 import '../../../../domain/use_cases/detect_page_anomalies_use_case.dart';
 
 class PageReviewViewModel extends ChangeNotifier {
@@ -11,15 +13,30 @@ class PageReviewViewModel extends ChangeNotifier {
     required this.projectId,
     required PageRepository pageRepository,
     required DetectPageAnomaliesUseCase detectAnomaliesUseCase,
+    required CapturePageUseCase capturePageUseCase,
   }) : _pageRepository = pageRepository,
-       _detectAnomaliesUseCase = detectAnomaliesUseCase {
+       _detectAnomaliesUseCase = detectAnomaliesUseCase,
+       _capturePageUseCase = capturePageUseCase {
     _subscribe();
   }
 
   final String projectId;
   final PageRepository _pageRepository;
   final DetectPageAnomaliesUseCase _detectAnomaliesUseCase;
+  final CapturePageUseCase _capturePageUseCase;
   StreamSubscription<List<ScanPage>>? _subscription;
+
+  final Set<String> selectedIds = {};
+
+  void toggleSelected(String pageId) {
+    if (!selectedIds.remove(pageId)) selectedIds.add(pageId);
+    notifyListeners();
+  }
+
+  void clearSelection() {
+    selectedIds.clear();
+    notifyListeners();
+  }
 
   List<ScanPage> _pages = const [];
   List<ScanPage> get pages => _pages;
@@ -90,6 +107,55 @@ class PageReviewViewModel extends ChangeNotifier {
       _pageRepository.duplicatePage(page.id);
 
   Future<void> delete(ScanPage page) => _pageRepository.deletePage(page.id);
+
+  /// Sets or clears the user-facing page label (cover, Roman numeral, etc.).
+  Future<void> setLogicalPageLabel(ScanPage page, String? label) {
+    final trimmed = label?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return _pageRepository.updatePage(
+        page.copyWith(clearLogicalPageLabel: true),
+      );
+    }
+    return _pageRepository.updatePage(
+      page.copyWith(logicalPageLabel: trimmed),
+    );
+  }
+
+  /// Resets filter/adjustments/crop/rotation and re-derives the processed
+  /// image from the retained [ScanPage.originalImagePath] (SPEC 6.2).
+  Future<void> revertToOriginal(ScanPage page) => _capturePageUseCase
+      .reprocessPage(
+        page,
+        cropPoints: Quad.fullFrame,
+        rotationDegrees: 0,
+        fineRotationDegrees: 0,
+        filter: PageFilter.original,
+        brightness: 0,
+        contrast: 0,
+        sharpness: 0,
+        threshold: 0.5,
+      );
+
+  Future<void> rotateSelected() async {
+    for (final page in _pages.where((p) => selectedIds.contains(p.id))) {
+      await rotate(page);
+    }
+    clearSelection();
+  }
+
+  Future<void> duplicateSelected() async {
+    for (final page in _pages.where((p) => selectedIds.contains(p.id))) {
+      await duplicate(page);
+    }
+    clearSelection();
+  }
+
+  Future<void> deleteSelected() async {
+    for (final page in _pages.where((p) => selectedIds.contains(p.id))) {
+      await delete(page);
+    }
+    clearSelection();
+  }
 
   Future<void> dismissWarning(ScanPage page, String warningName) =>
       _pageRepository.updatePage(

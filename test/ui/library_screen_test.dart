@@ -1,5 +1,6 @@
 import 'package:bookscanner/domain/models/project.dart';
 import 'package:bookscanner/l10n/gen/app_localizations.dart';
+import 'package:bookscanner/ui/core/theme/app_theme.dart';
 import 'package:bookscanner/ui/features/library/view_models/library_view_model.dart';
 import 'package:bookscanner/ui/features/library/views/library_screen.dart';
 import 'package:bookscanner/ui/features/library/views/project_list_row.dart';
@@ -10,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'fakes/fake_project_repository.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
+  theme: AppTheme.light(),
   localizationsDelegates: const [
     AppLocalizations.delegate,
     GlobalMaterialLocalizations.delegate,
@@ -28,7 +30,10 @@ void main() {
     await tester.pumpWidget(_wrap(LibraryScreen(viewModel: viewModel)));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('libraryEmptyTitle')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('libraryEmptyTitle'), skipOffstage: false),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('libraryList')), findsNothing);
   });
 
@@ -52,11 +57,25 @@ void main() {
     await tester.pumpWidget(_wrap(LibraryScreen(viewModel: viewModel)));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('libraryList')), findsOneWidget);
-    expect(find.text('Tax Forms'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('libraryList'), skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(find.text('Tax Forms', skipOffstage: false), findsOneWidget);
   });
 
-  testWidgets('search field filters the visible projects', (tester) async {
+  testWidgets('search button opens from the home app bar', (tester) async {
+    final repository = FakeProjectRepository();
+    final viewModel = LibraryViewModel(projectRepository: repository);
+
+    await tester.pumpWidget(_wrap(LibraryScreen(viewModel: viewModel)));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('librarySearchButton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('libraryFavoritesButton')), findsOneWidget);
+  });
+
+  test('LibraryViewModel search filters projects by title', () async {
     final repository = FakeProjectRepository();
     final now = DateTime.now();
     repository.seed([
@@ -82,23 +101,16 @@ void main() {
       ),
     ]);
     final viewModel = LibraryViewModel(projectRepository: repository);
+    await Future<void>.delayed(Duration.zero);
+    expect(viewModel.projects.length, 2);
 
-    await tester.pumpWidget(_wrap(LibraryScreen(viewModel: viewModel)));
-    await tester.pumpAndSettle();
-    expect(find.text('Tax Forms'), findsOneWidget);
-    expect(find.text('Novel Scan'), findsOneWidget);
-
-    await tester.enterText(
-      find.byKey(const ValueKey('librarySearchField')),
-      'Novel',
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Novel Scan'), findsOneWidget);
-    expect(find.text('Tax Forms'), findsNothing);
+    viewModel.setSearchText('Novel');
+    await Future<void>.delayed(Duration.zero);
+    expect(viewModel.projects.map((p) => p.title), ['Novel Scan']);
+    viewModel.dispose();
   });
 
-  testWidgets('tapping New Scan FAB is present and tappable', (tester) async {
+  testWidgets('home shows Popular Tools including Scan ID', (tester) async {
     final repository = FakeProjectRepository();
     final viewModel = LibraryViewModel(projectRepository: repository);
 
@@ -106,6 +118,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('newScanFab')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeDockScans')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeQuickActionsList')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeScanDoc')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeScanId')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeAddFolder')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeGallery')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeImportFile')), findsOneWidget);
+    expect(find.byKey(const ValueKey('homeToolBook')), findsOneWidget);
+    expect(find.byKey(const ValueKey('librarySearchButton')), findsOneWidget);
   });
 
   testWidgets(
@@ -129,9 +150,13 @@ void main() {
 
       await tester.pumpWidget(_wrap(LibraryScreen(viewModel: viewModel)));
       await tester.pumpAndSettle();
+      expect(find.textContaining('2 pages', skipOffstage: false), findsOneWidget);
 
-      expect(find.text('2 pages'), findsOneWidget);
-
+      await tester.drag(
+        find.byKey(const ValueKey('libraryScroll')),
+        const Offset(0, -420),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('projectRowMenu')));
       await tester.pumpAndSettle();
 
@@ -167,15 +192,23 @@ void main() {
 
       await tester.pumpWidget(_wrap(LibraryScreen(viewModel: viewModel)));
       await tester.pumpAndSettle();
-      expect(find.text('Tax Forms'), findsOneWidget);
+      expect(find.text('Tax Forms', skipOffstage: false), findsOneWidget);
 
+      await tester.drag(
+        find.byKey(const ValueKey('libraryScroll')),
+        const Offset(0, -420),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('projectRowMenu')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Tax Forms'), findsNothing);
-      expect(find.byKey(const ValueKey('libraryEmptyTitle')), findsOneWidget);
+      expect(find.text('Tax Forms', skipOffstage: false), findsNothing);
+      expect(
+        find.byKey(const ValueKey('libraryEmptyTitle'), skipOffstage: false),
+        findsOneWidget,
+      );
     },
   );
 }

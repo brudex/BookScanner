@@ -15,6 +15,8 @@ import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'support/post_capture_helpers.dart';
+
 /// Manual-only capture provider double, identical in spirit to the one in
 /// `book_scan_session_test.dart`/`interrupted_session_recovery_test.dart`.
 class _ManualOnlyCaptureProvider implements CaptureProvider {
@@ -154,12 +156,11 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('shutterButton')));
     await tester.pumpAndSettle();
-    expect(find.text('1 page scanned'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capturePageCount')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
     await tester.pumpAndSettle();
-    // "Done" now prompts to name the scan (defaulted to a timestamp) before
-    // navigating -- accept the default rather than typing a real name.
+    await advancePostCapturePage(tester);
     await tester.tap(find.byKey(const ValueKey('captureNameSaveButton')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('pageReviewList')), findsOneWidget);

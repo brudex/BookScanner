@@ -3,24 +3,25 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:bookscanner/data/services/local/app_paths.dart';
-import 'package:bookscanner/data/services/scanner/adapters/dart_book_dewarp_provider.dart';
-import 'package:bookscanner/data/services/local/file_storage_service.dart';
 import 'package:bookscanner/domain/models/capture_models.dart';
 import 'package:bookscanner/domain/models/geometry.dart';
 import 'package:bookscanner/domain/models/project.dart';
 import 'package:bookscanner/domain/models/provider_info.dart';
 import 'package:bookscanner/domain/models/scan_page.dart';
+import 'package:bookscanner/domain/providers/book_dewarp_provider.dart';
 import 'package:bookscanner/domain/providers/capture_provider.dart';
 import 'package:bookscanner/domain/providers/image_enhancement_provider.dart';
 import 'package:bookscanner/domain/providers/page_detection_provider.dart';
 import 'package:bookscanner/domain/repositories/page_repository.dart';
 import 'package:bookscanner/domain/repositories/project_repository.dart';
+import 'package:bookscanner/domain/repositories/settings_repository.dart';
 import 'package:bookscanner/domain/use_cases/capture_page_use_case.dart';
 import 'package:bookscanner/domain/use_cases/process_book_spread_use_case.dart';
 import 'package:bookscanner/l10n/gen/app_localizations.dart';
 import 'package:bookscanner/ui/features/capture/view_models/capture_view_model.dart';
 import 'package:bookscanner/ui/features/capture/views/capture_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -190,6 +191,9 @@ class _FakeProjectRepository implements ProjectRepository {
   Future<Project?> getProject(String id) async => nextProject;
 
   @override
+  Future<Set<String>> projectIdsMatchingOcrText(String text) async => {};
+
+  @override
   Stream<Project?> watchProject(String id) => Stream.value(nextProject);
 
   @override
@@ -218,6 +222,24 @@ class _FakeProjectRepository implements ProjectRepository {
   Future<void> renameProject(String id, String title) async {
     renameCalls.add((id, title));
   }
+}
+
+class _FakeSettingsRepository implements SettingsRepository {
+  _FakeSettingsRepository({AppSettings? settings})
+    : _settings = settings ?? const AppSettings();
+
+  AppSettings _settings;
+
+  @override
+  Future<AppSettings> getSettings() async => _settings;
+
+  @override
+  Future<void> updateSettings(AppSettings settings) async {
+    _settings = settings;
+  }
+
+  @override
+  Stream<AppSettings> watchSettings() => Stream.value(_settings);
 }
 
 class _FakeDetectionProvider implements PageDetectionProvider {
@@ -253,6 +275,72 @@ class _FakeEnhancementProvider implements ImageEnhancementProvider {
       providerInfo: info,
       cropPoints: request.cropPoints,
     );
+  }
+}
+
+class _FakeBookDewarpProvider implements BookDewarpProvider {
+  _FakeBookDewarpProvider(this._tmpDir);
+
+  final Directory _tmpDir;
+  int splitCalls = 0;
+  int dewarpCalls = 0;
+
+  @override
+  ProviderInfo get info =>
+      const ProviderInfo(providerName: 'fake-book-dewarp', adapterVersion: '1');
+
+  @override
+  Future<bool> isSupported() async => true;
+
+  @override
+  Future<SpreadSplitResult> splitSpread(
+    String spreadImagePath, {
+    double? gutterXOverride,
+  }) async {
+    splitCalls++;
+    final image = img.Image(width: 40, height: 60);
+    img.fill(image, color: img.ColorRgb8(255, 255, 255));
+    final leftPath = p.join(_tmpDir.path, 'split_left_$splitCalls.jpg');
+    final rightPath = p.join(_tmpDir.path, 'split_right_$splitCalls.jpg');
+    File(leftPath).writeAsBytesSync(img.encodeJpg(image));
+    File(rightPath).writeAsBytesSync(img.encodeJpg(image));
+    return SpreadSplitResult(
+      leftPageImagePath: leftPath,
+      rightPageImagePath: rightPath,
+      confidence: 0.9,
+      providerInfo: info,
+    );
+  }
+
+  @override
+  Future<DewarpResult> dewarp(
+    String pageImagePath,
+    Quad pageBounds, {
+    String? outputPath,
+  }) async {
+    dewarpCalls++;
+    final path = outputPath ?? pageImagePath;
+    if (outputPath != null && outputPath != pageImagePath) {
+      File(pageImagePath).copySync(outputPath);
+    }
+    return DewarpResult(
+      flattenedImagePath: path,
+      providerInfo: info,
+      occlusionDetected: false,
+      occlusionHighConfidenceTextLoss: false,
+    );
+  }
+}
+
+/// Polls [condition] instead of a fixed `Future.delayed`, so async capture
+/// pipeline tests aren't flaky under a slow/loaded CI machine.
+Future<void> _waitUntil(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition() && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
   }
 }
 
@@ -312,7 +400,7 @@ void main() {
     );
     processBookSpreadUseCase = ProcessBookSpreadUseCase(
       pageRepository: pageRepository,
-      dewarpProvider: DartBookDewarpProvider(FileStorageService(paths)),
+      dewarpProvider: _FakeBookDewarpProvider(tmpDir),
       detectionProvider: _FakeDetectionProvider(),
       enhancementProvider: _FakeEnhancementProvider(),
       fileStorage: paths,
@@ -324,6 +412,7 @@ void main() {
   CaptureViewModel buildViewModel({
     Duration resultPreviewHold = Duration.zero,
     String? replacePageId,
+    CaptureSettings captureSettings = const CaptureSettings(),
   }) => CaptureViewModel(
     projectId: 'proj1',
     captureProvider: captureProvider,
@@ -331,6 +420,9 @@ void main() {
     processBookSpreadUseCase: processBookSpreadUseCase,
     projectRepository: projectRepository,
     pageRepository: pageRepository,
+    settingsRepository: _FakeSettingsRepository(
+      settings: AppSettings(captureSettings: captureSettings),
+    ),
     replacePageId: replacePageId,
     resultPreviewHold: resultPreviewHold,
   );
@@ -346,9 +438,9 @@ void main() {
       await tester.pump();
 
       expect(find.byKey(const ValueKey('shutterButton')), findsOneWidget);
-      expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
-      expect(find.byKey(const ValueKey('capturePageCount')), findsOneWidget);
-      expect(find.text('No pages yet'), findsOneWidget);
+      // Continue + page badge only appear after the first page is captured.
+      expect(find.byKey(const ValueKey('captureDoneButton')), findsNothing);
+      expect(find.byKey(const ValueKey('capturePageCount')), findsNothing);
     },
   );
 
@@ -431,7 +523,8 @@ void main() {
     await tester.pump();
 
     expect(viewModel.pageCount, 1);
-    expect(find.text('1 page scanned'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capturePageCount')), findsOneWidget);
+    expect(find.text('1'), findsWidgets);
     final pages = await pageRepository.getPages('proj1');
     expect(pages, hasLength(1));
   });
@@ -560,13 +653,10 @@ void main() {
     },
   );
 
-  // Regression test: capture used to auto-fire once a frame held every
-  // quality gate for a ~600ms stable window (SPEC 17.3). Rejected on-device
-  // -- the shutter showed the same spinner an auto-fired capture used as a
-  // manual one, so it visibly locked out and spun on its own while the user
-  // was still lining up the shot. Capture must now be manual-only.
+  // Same-timestamp frames stay below the 2000ms Auto stable window, so Auto
+  // does not fire. Increasing timestamps are covered by the ViewModel test.
   testWidgets(
-    'stable analysis frames alone never trigger a capture -- only a manual shutter tap does',
+    'stable analysis frames with no elapsed capture window do not auto-fire',
     (tester) async {
       captureProvider.analysisController = StreamController<FrameAnalysis>();
       addTearDown(() => captureProvider.analysisController!.close());
@@ -587,8 +677,6 @@ void main() {
         exposureAcceptable: true,
         warnings: {},
       );
-      // Several stable frames in a row -- the old logic fired after ~600ms
-      // of exactly this.
       for (var i = 0; i < 5; i++) {
         captureProvider.analysisController!.add(stableFrame);
         await tester.pump();
@@ -602,8 +690,213 @@ void main() {
     },
   );
 
+  test(
+    'auto-capture fires once after a 2000ms stable window, then waits for scene change',
+    () async {
+      captureProvider.analysisController =
+          StreamController<FrameAnalysis>.broadcast();
+      addTearDown(() => captureProvider.analysisController!.close());
+      final viewModel = buildViewModel();
+      await viewModel.initialize();
+      viewModel.setAutoCaptureEnabled(true);
+      expect(viewModel.autoCaptureEnabled, isTrue);
+
+      FrameAnalysis stable(int ms) => FrameAnalysis(
+        timestampMs: ms,
+        documentDetected: true,
+        quad: Quad.captureGuide,
+        cornersStable: true,
+        motionBelowThreshold: true,
+        focusAcceptable: true,
+        exposureAcceptable: true,
+        warnings: const {},
+        confidence: 0.8,
+      );
+
+      captureProvider.analysisController!.add(stable(0));
+      captureProvider.analysisController!.add(stable(1000));
+      captureProvider.analysisController!.add(stable(2100));
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(viewModel.pageCount, 1);
+
+      captureProvider.analysisController!.add(stable(2300));
+      captureProvider.analysisController!.add(stable(2800));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(viewModel.pageCount, 1);
+
+      captureProvider.analysisController!.add(
+        const FrameAnalysis(
+          timestampMs: 3000,
+          documentDetected: false,
+          quad: null,
+          cornersStable: false,
+          motionBelowThreshold: false,
+          focusAcceptable: true,
+          exposureAcceptable: true,
+          warnings: {},
+        ),
+      );
+      captureProvider.analysisController!.add(stable(3200));
+      captureProvider.analysisController!.add(stable(5300));
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(viewModel.pageCount, 2);
+    },
+  );
+
+  test('manual mode does not auto-capture', () async {
+    captureProvider.analysisController =
+        StreamController<FrameAnalysis>.broadcast();
+    addTearDown(() => captureProvider.analysisController!.close());
+    final viewModel = buildViewModel();
+    await viewModel.initialize();
+    viewModel.setAutoCaptureEnabled(false);
+    for (final ms in [0, 300, 700, 1000]) {
+      captureProvider.analysisController!.add(
+        FrameAnalysis(
+          timestampMs: ms,
+          documentDetected: true,
+          quad: Quad.captureGuide,
+          cornersStable: true,
+          motionBelowThreshold: true,
+          focusAcceptable: true,
+          exposureAcceptable: true,
+          warnings: const {},
+          confidence: 0.8,
+        ),
+      );
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(viewModel.pageCount, 0);
+  });
+
+  test(
+    'a configured countdown delays the capture and reports remaining seconds',
+    () async {
+      final viewModel = buildViewModel(
+        captureSettings: const CaptureSettings(countdownSeconds: 2),
+      );
+      await viewModel.initialize();
+
+      final future = viewModel.captureManually();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(viewModel.countdownRemaining, 2);
+      expect(viewModel.pageCount, 0);
+
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+      expect(viewModel.countdownRemaining, 1);
+      expect(viewModel.pageCount, 0);
+
+      await future;
+      expect(viewModel.countdownRemaining, 0);
+      expect(viewModel.pageCount, 1);
+    },
+  );
+
+  test(
+    'continuous capture re-arms immediately without requiring a scene change',
+    () async {
+      captureProvider.analysisController =
+          StreamController<FrameAnalysis>.broadcast();
+      addTearDown(() => captureProvider.analysisController!.close());
+      final viewModel = buildViewModel(
+        captureSettings: const CaptureSettings(
+          autoCaptureEnabled: true,
+          continuousCapture: true,
+        ),
+      );
+      await viewModel.initialize();
+      expect(viewModel.autoCaptureEnabled, isTrue);
+
+      FrameAnalysis stable(int ms) => FrameAnalysis(
+        timestampMs: ms,
+        documentDetected: true,
+        quad: Quad.captureGuide,
+        cornersStable: true,
+        motionBelowThreshold: true,
+        focusAcceptable: true,
+        exposureAcceptable: true,
+        warnings: const {},
+        confidence: 0.8,
+      );
+
+      // First stable window fires a capture.
+      captureProvider.analysisController!.add(stable(0));
+      captureProvider.analysisController!.add(stable(2100));
+      await _waitUntil(() => viewModel.pageCount == 1);
+      expect(viewModel.pageCount, 1);
+
+      // A second stable window, with no intervening unstable frame, fires
+      // again immediately -- unlike the non-continuous default, which
+      // requires a scene change first (see the sibling test above).
+      captureProvider.analysisController!.add(stable(2200));
+      captureProvider.analysisController!.add(stable(4300));
+      await _waitUntil(() => viewModel.pageCount == 2);
+      expect(viewModel.pageCount, 2);
+    },
+  );
+
+  test('haptic and audio confirmation fire only when enabled', () async {
+    final hapticCalls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding
+        .instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          hapticCalls.add(call);
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    final viewModel = buildViewModel(
+      captureSettings: const CaptureSettings(
+        hapticConfirmation: true,
+        audioConfirmation: true,
+      ),
+    );
+    await viewModel.initialize();
+    await viewModel.captureManually();
+
+    expect(
+      hapticCalls.map((c) => c.method),
+      containsAll(['HapticFeedback.vibrate', 'SystemSound.play']),
+    );
+  });
+
+  test('haptic and audio confirmation stay silent when disabled', () async {
+    final hapticCalls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding
+        .instance
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          hapticCalls.add(call);
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    final viewModel = buildViewModel(
+      captureSettings: const CaptureSettings(
+        hapticConfirmation: false,
+        audioConfirmation: false,
+      ),
+    );
+    await viewModel.initialize();
+    await viewModel.captureManually();
+
+    expect(
+      hapticCalls.map((c) => c.method),
+      isNot(
+        anyOf(contains('HapticFeedback.vibrate'), contains('SystemSound.play')),
+      ),
+    );
+  });
+
   testWidgets(
-    'tapping Done prompts to name the scan, defaulted to a timestamp',
+    'tapping Continue with no pages does nothing visible (button hidden)',
     (tester) async {
       final viewModel = buildViewModel();
       await tester.pumpWidget(
@@ -612,32 +905,27 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // `onDone`'s `closeSession()` await never itself schedules a widget
-      // rebuild, so `pumpAndSettle()` alone considers the tree "settled"
-      // and returns before that microtask chain actually reaches
-      // `showDialog` -- the same class of issue `captureManually` has
-      // elsewhere in this file, needing `runAsync` for real async work to
-      // actually complete under the default fake-async test zone.
-      await tester.runAsync(
-        () => tester.tap(find.byKey(const ValueKey('captureDoneButton'))),
-      );
-      await tester.pumpAndSettle();
-      // Deliberately not tapping Save or Cancel: both proceed to a real
-      // `context.pushReplacement`, which (like `context.pop()` elsewhere in
-      // this file) needs a real GoRouter ancestor this harness doesn't set
-      // up -- that part is covered by integration_test/ instead. This test
-      // only covers the dialog itself.
+      expect(find.byKey(const ValueKey('captureDoneButton')), findsNothing);
+      expect(find.byKey(const ValueKey('captureNameField')), findsNothing);
+    },
+  );
 
-      expect(find.byKey(const ValueKey('captureNameField')), findsOneWidget);
-      final field = tester.widget<TextField>(
-        find.byKey(const ValueKey('captureNameField')),
+  testWidgets(
+    'Continue appears after a page is captured',
+    (tester) async {
+      final viewModel = buildViewModel();
+      await tester.pumpWidget(
+        _wrap(CaptureScreen(projectId: 'proj1', viewModel: viewModel)),
       );
-      // "MM-dd HH:mm", e.g. "09-01 14:23" -- proves it defaults to a real
-      // timestamp, not an empty or hard-coded field.
-      expect(
-        field.controller!.text,
-        matches(RegExp(r'^\d{2}-\d{2} \d{2}:\d{2}$')),
-      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.runAsync(() => viewModel.captureManually());
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
+      expect(find.text('Continue'), findsWidgets);
+      expect(find.byKey(const ValueKey('captureNameField')), findsNothing);
     },
   );
 
@@ -702,6 +990,7 @@ void main() {
         processBookSpreadUseCase: processBookSpreadUseCase,
         projectRepository: projectRepository,
         pageRepository: pageRepository,
+        settingsRepository: _FakeSettingsRepository(),
         replacePageId: 'existing-page',
       );
       await viewModel.initialize();
@@ -725,37 +1014,71 @@ void main() {
     },
   );
 
-  test(
-    'quality warnings block capture until bypassQualityGate is passed',
-    () async {
-      captureProvider.analysisController =
-          StreamController<FrameAnalysis>.broadcast();
-      addTearDown(() => captureProvider.analysisController!.close());
-      final viewModel = buildViewModel();
-      await viewModel.initialize();
-      captureProvider.analysisController!.add(
-        const FrameAnalysis(
-          timestampMs: 1,
-          documentDetected: false,
-          quad: null,
-          cornersStable: false,
-          motionBelowThreshold: false,
-          focusAcceptable: false,
-          exposureAcceptable: false,
-          warnings: {QualityWarning.blur},
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
+  test('quality warnings do not block a manual shutter tap', () async {
+    captureProvider.analysisController =
+        StreamController<FrameAnalysis>.broadcast();
+    addTearDown(() => captureProvider.analysisController!.close());
+    final viewModel = buildViewModel();
+    await viewModel.initialize();
+    captureProvider.analysisController!.add(
+      const FrameAnalysis(
+        timestampMs: 1,
+        documentDetected: false,
+        quad: null,
+        cornersStable: false,
+        motionBelowThreshold: false,
+        focusAcceptable: false,
+        exposureAcceptable: false,
+        warnings: {QualityWarning.blur},
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
 
-      final blocked = await viewModel.captureManually();
-      expect(blocked, isEmpty);
-      expect(viewModel.awaitingQualityOverride, isTrue);
-      expect(viewModel.pageCount, 0);
+    final pages = await viewModel.captureManually();
+    expect(pages, isNotEmpty);
+    expect(viewModel.pageCount, 1);
+  });
 
-      final pages = await viewModel.captureManually(bypassQualityGate: true);
-      expect(pages, isNotEmpty);
-    },
-  );
+  test('a book two-page-spread capture persists two split pages', () async {
+    projectRepository.nextProject = Project(
+      id: 'proj1',
+      type: ProjectType.book,
+      title: 'Book',
+      metadata: const ProjectMetadata(bookScanMode: BookScanMode.twoPageSpread),
+      pageOrder: const [],
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      processingState: ProcessingState.idle,
+    );
+    final viewModel = buildViewModel();
+    await viewModel.initialize();
+    final pages = await viewModel.captureManually();
+    expect(pages, hasLength(2));
+    expect(viewModel.pageCount, 2);
+    expect(pages[0].spreadSiblingPageId, pages[1].id);
+    expect(pages[1].spreadSiblingPageId, pages[0].id);
+  });
+
+  test('a book single-page capture persists one dewarped page', () async {
+    projectRepository.nextProject = Project(
+      id: 'proj1',
+      type: ProjectType.book,
+      title: 'Book',
+      metadata: const ProjectMetadata(bookScanMode: BookScanMode.singlePage),
+      pageOrder: const [],
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      processingState: ProcessingState.idle,
+    );
+    final viewModel = buildViewModel();
+    await viewModel.initialize();
+    final pages = await viewModel.captureManually();
+    expect(pages, hasLength(1));
+    expect(viewModel.pageCount, 1);
+    expect(pages.single.spreadSiblingPageId, isNull);
+    expect(pages.single.stages[PipelineStage.dewarp], isNotNull);
+    expect(pages.single.stages[PipelineStage.split], isNull);
+  });
 
   testWidgets('a confident live quad draws the detected polygon overlay', (
     tester,
@@ -794,7 +1117,28 @@ void main() {
       find.byKey(const ValueKey('captureDetectedPolygon')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('captureFrameGuide')), findsNothing);
     expect(find.byKey(const ValueKey('captureFlashButton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('captureAutoToggle')), findsOneWidget);
+    expect(find.byKey(const ValueKey('captureImportButton')), findsOneWidget);
     expect(find.byKey(const ValueKey('captureZoomSlider')), findsOneWidget);
+  });
+
+  testWidgets('Auto/Manual toggle switches capture mode', (tester) async {
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(
+      _wrap(CaptureScreen(projectId: 'proj1', viewModel: viewModel)),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(viewModel.autoCaptureEnabled, isFalse);
+    expect(find.text('Manual'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('captureAutoToggle')));
+    await tester.pump();
+
+    expect(viewModel.autoCaptureEnabled, isTrue);
+    expect(find.text('Auto'), findsOneWidget);
   });
 }

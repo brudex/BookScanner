@@ -118,6 +118,7 @@ void main() {
         projectId: 'proj1',
         sequence: 0,
         originalImagePath: imagePath,
+        processedImagePath: p.join(tmpDir.path, 'processed.jpg'),
         status: PageStatus.ready,
         filter: PageFilter.grayscale,
         brightness: 10,
@@ -152,6 +153,23 @@ void main() {
       expect(viewModel.brightness, 10);
       expect(viewModel.contrast, -5);
       expect(viewModel.sharpness, 20);
+      expect(viewModel.showingSavedProcessed, isTrue);
+      expect(viewModel.previewImagePath, endsWith('processed.jpg'));
+    },
+  );
+
+  test(
+    'changing a filter keeps the cropped processed framing, not the full original',
+    () async {
+      await viewModel.initialize();
+      expect(viewModel.showingSavedProcessed, isTrue);
+
+      viewModel.selectFilter(PageFilter.blackAndWhite);
+
+      expect(viewModel.showingSavedProcessed, isFalse);
+      // Until the live render finishes, fall back to last processed (cropped),
+      // never the full-bleed camera original.
+      expect(viewModel.previewImagePath, endsWith('processed.jpg'));
     },
   );
 
@@ -197,6 +215,35 @@ void main() {
       expect(updated?.brightness, 15);
       expect(updated?.contrast, 25);
       expect(updated?.sharpness, 40);
+      expect(viewModel.page?.filter, PageFilter.photo);
+      expect(viewModel.showingSavedProcessed, isTrue);
+      expect(viewModel.previewEpoch, greaterThan(0));
+    },
+  );
+
+  test(
+    'reloadFromRepository adopts crop/filter changes written by another screen',
+    () async {
+      await viewModel.initialize();
+      expect(viewModel.showingSavedProcessed, isTrue);
+
+      final existing = (await pageRepository.getPage('p1'))!;
+      await pageRepository.updatePage(
+        existing.copyWith(
+          processedImagePath: p.join(tmpDir.path, 'after-crop.jpg'),
+          filter: PageFilter.blackAndWhite,
+          brightness: 0,
+          contrast: 0,
+          sharpness: 0,
+        ),
+      );
+
+      await viewModel.reloadFromRepository();
+
+      expect(viewModel.filter, PageFilter.blackAndWhite);
+      expect(viewModel.previewImagePath, endsWith('after-crop.jpg'));
+      expect(viewModel.showingSavedProcessed, isTrue);
+      expect(viewModel.previewEpoch, greaterThan(0));
     },
   );
 

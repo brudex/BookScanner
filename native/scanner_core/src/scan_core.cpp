@@ -263,7 +263,10 @@ bool warp_enhance_file(const char* source, const char* dest, const EnhanceOption
   }
   const bool cropped = polygon_area(crop) > 0.02 && !nearly_full_frame(crop);
   cv::Mat page = cropped ? warp_quad(bgr, crop) : bgr;
-  if (cropped && opt.remove_shadows) {
+  const bool needs_flatten =
+      opt.remove_shadows &&
+      (cropped || opt.filter == 1 || opt.filter == 2 || opt.filter == 3);
+  if (needs_flatten) {
     page = normalize_illumination(page);
   }
   page = apply_filter(page, opt.filter);

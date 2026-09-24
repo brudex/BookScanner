@@ -93,4 +93,28 @@ void main() {
     final fetched = await repository.getProject(project.id);
     expect(fetched!.isFavorite, isTrue);
   });
+
+  test('updateProject persists book metadata including scan mode', () async {
+    final project = await repository.createProject(
+      type: ProjectType.book,
+      title: 'Book',
+    );
+    await repository.updateProject(
+      project.copyWith(
+        metadata: const ProjectMetadata(
+          author: 'Ada',
+          language: 'fr',
+          startingPageNumber: 7,
+          pageOrderDirection: PageOrderDirection.rightToLeft,
+          bookScanMode: BookScanMode.singlePage,
+        ),
+      ),
+    );
+    final fetched = await repository.getProject(project.id);
+    expect(fetched!.metadata.author, 'Ada');
+    expect(fetched.metadata.language, 'fr');
+    expect(fetched.metadata.startingPageNumber, 7);
+    expect(fetched.metadata.pageOrderDirection, PageOrderDirection.rightToLeft);
+    expect(fetched.metadata.bookScanMode, BookScanMode.singlePage);
+  });
 }

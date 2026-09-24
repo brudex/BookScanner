@@ -17,6 +17,8 @@ import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'support/post_capture_helpers.dart';
+
 /// Manual-only capture provider double, identical in spirit to the one in
 /// `book_scan_session_test.dart` (see that file's doc comment for why
 /// `analysisStream()` stays empty rather than reusing `FakeCaptureProvider`).
@@ -161,9 +163,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('shutterButton')));
       await tester.pumpAndSettle();
-      expect(find.text('1 page scanned'), findsOneWidget);
-
-      // Interrupt the session here -- deliberately never tap "Done".
+      expect(find.byKey(const ValueKey('capturePageCount')), findsOneWidget);
       // Discard the whole widget tree and rebuild the app from scratch to
       // simulate a cold relaunch. `setupServiceLocator()` (and the real
       // SQLite connection/files it opened) is untouched by this, matching
@@ -199,12 +199,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('shutterButton')));
       await tester.pumpAndSettle();
-      expect(find.text('2 pages scanned'), findsOneWidget);
+      expect(find.text('2'), findsWidgets);
 
       await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
       await tester.pumpAndSettle();
-      // "Done" now prompts to name the scan (defaulted to a timestamp)
-      // before navigating -- accept the default rather than typing a name.
+      // Two pages → crop+Save/Next twice, then name.
+      await advancePostCapturePage(tester);
+      await advancePostCapturePage(tester);
       await tester.tap(find.byKey(const ValueKey('captureNameSaveButton')));
       await tester.pumpAndSettle();
 

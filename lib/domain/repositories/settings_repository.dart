@@ -11,6 +11,7 @@ class AppSettings {
     this.ocrLanguages = const ['en'],
     this.hasSeenCopyrightNotice = false,
     this.largeExportAcknowledgedPageThreshold = 300,
+    this.hasCompletedOnboarding = false,
   });
 
   final bool appLockEnabled;
@@ -22,6 +23,7 @@ class AppSettings {
   final List<String> ocrLanguages;
   final bool hasSeenCopyrightNotice;
   final int largeExportAcknowledgedPageThreshold;
+  final bool hasCompletedOnboarding;
 
   AppSettings copyWith({
     bool? appLockEnabled,
@@ -33,6 +35,7 @@ class AppSettings {
     List<String>? ocrLanguages,
     bool? hasSeenCopyrightNotice,
     int? largeExportAcknowledgedPageThreshold,
+    bool? hasCompletedOnboarding,
   }) => AppSettings(
     appLockEnabled: appLockEnabled ?? this.appLockEnabled,
     cloudProcessingConsentGiven:
@@ -48,6 +51,8 @@ class AppSettings {
     largeExportAcknowledgedPageThreshold:
         largeExportAcknowledgedPageThreshold ??
         this.largeExportAcknowledgedPageThreshold,
+    hasCompletedOnboarding:
+        hasCompletedOnboarding ?? this.hasCompletedOnboarding,
   );
 }
 

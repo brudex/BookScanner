@@ -10,10 +10,11 @@ import '../../../domain/providers/document_export_provider.dart';
 
 /// Generates UTF-8 Markdown with a sibling `assets/` directory (SPEC 6.6).
 /// Reading order comes from [OcrBlock.readingOrder]; block type drives the
-/// Markdown construct. Tables that don't fit a simple grid fall back to an
-/// image of the page region (recorded as a TODO comment for now — see
-/// IMPLEMENTATION_STATUS.md) since faithful HTML-table fallback requires the
-/// layout stage's per-cell geometry, built in the OCR/layout task.
+/// Markdown construct. Consecutive `tableCell` blocks (grouped by
+/// `tableRow`/`tableColumn`, assigned by `AnalyzeOcrLayoutUseCase`'s grid
+/// heuristic) are rendered as a real Markdown table via [_renderTable];
+/// there is no separate HTML-table fallback since the heuristic only ever
+/// detects grids simple enough for that syntax.
 class MarkdownWriter {
   MarkdownWriter({required this.info});
 
@@ -69,9 +70,25 @@ class MarkdownWriter {
         continue;
       }
 
-      for (final block in blocks) {
+      var k = 0;
+      while (k < blocks.length) {
+        final block = blocks[k];
+        if (block.blockType == BlockType.tableCell) {
+          final group = <OcrBlock>[block];
+          var j = k + 1;
+          while (j < blocks.length &&
+              blocks[j].blockType == BlockType.tableCell) {
+            group.add(blocks[j]);
+            j++;
+          }
+          buffer.writeln(_renderTable(group));
+          buffer.writeln();
+          k = j;
+          continue;
+        }
         buffer.writeln(_renderBlock(block));
         buffer.writeln();
+        k++;
       }
     }
 
@@ -108,6 +125,32 @@ class MarkdownWriter {
     BlockType.image || BlockType.qrBarcode => '',
     BlockType.paragraph || BlockType.unknown => block.text,
   };
+
+  /// Renders a run of consecutive `tableCell` blocks (grouped by
+  /// [AnalyzeOcrLayoutUseCase]'s `tableRow`/`tableColumn`) as a real Markdown
+  /// table, with the first row as the header and a `| --- |` separator.
+  String _renderTable(List<OcrBlock> cells) {
+    final byRow = <int, List<OcrBlock>>{};
+    for (final cell in cells) {
+      byRow.putIfAbsent(cell.tableRow ?? 0, () => []).add(cell);
+    }
+    final rowKeys = byRow.keys.toList()..sort();
+    for (final row in byRow.values) {
+      row.sort((a, b) => (a.tableColumn ?? 0).compareTo(b.tableColumn ?? 0));
+    }
+
+    String renderRow(List<OcrBlock> row) =>
+        '| ${row.map((c) => c.text.replaceAll('|', '\\|')).join(' | ')} |';
+
+    final buffer = StringBuffer();
+    final rows = rowKeys.map((key) => byRow[key]!).toList();
+    buffer.writeln(renderRow(rows.first));
+    buffer.writeln('| ${rows.first.map((_) => '---').join(' | ')} |');
+    for (final row in rows.skip(1)) {
+      buffer.writeln(renderRow(row));
+    }
+    return buffer.toString().trimRight();
+  }
 
   String _escapeYaml(String value) => value.replaceAll('"', '\\"');
 

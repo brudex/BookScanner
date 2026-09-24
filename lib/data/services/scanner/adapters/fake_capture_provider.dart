@@ -14,10 +14,10 @@ import '../../local/app_paths.dart';
 /// Deterministic in-memory capture provider used by contract/unit/widget/
 /// integration tests (SPEC 13: "Integration tests must cover: ... document
 /// capture with a fake adapter"). Not wired into the production composition
-/// root on Android or iOS — those use [NativeCaptureProvider]. Generates a
-/// real JPEG file on disk (not an in-memory-only stub) so downstream
-/// enhancement/OCR/export pipeline stages under test operate on genuine
-/// files, matching the file-path-only boundary contract.
+/// root on Android or iOS — those use `cunning_document_scanner`.
+/// Generates a real JPEG file on disk (not an in-memory-only stub) so
+/// downstream enhancement/OCR/export pipeline stages under test operate on
+/// genuine files, matching the file-path-only boundary contract.
 class FakeCaptureProvider implements CaptureProvider {
   FakeCaptureProvider({
     required AppPaths paths,

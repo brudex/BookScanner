@@ -188,7 +188,7 @@ void main() {
 
       // The capture must succeed and be reflected on screen, not silently
       // swallowed by the (now-caught) detection failure.
-      expect(find.text('1 page scanned'), findsOneWidget);
+      expect(find.byKey(const ValueKey('capturePageCount')), findsOneWidget);
 
       final pages = await locator<PageRepository>().getPages(projectId);
       expect(pages, hasLength(1));

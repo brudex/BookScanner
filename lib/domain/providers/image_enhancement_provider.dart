@@ -9,22 +9,33 @@ class EnhancementRequest {
     required this.cropPoints,
     required this.rotationDegrees,
     required this.filter,
+    this.fineRotationDegrees = 0,
     this.brightness = 0,
     this.contrast = 0,
     this.sharpness = 0,
+    this.threshold = 0.5,
     this.removeShadowsAndStains = true,
     this.detectCrop = false,
     this.splitOpenBook = true,
+    this.passthrough = false,
   });
 
   final String sourceImagePath;
   final String outputImagePath;
   final Quad cropPoints;
   final int rotationDegrees;
+
+  /// Additional arbitrary-angle rotation (-45..45 degrees) applied after
+  /// [rotationDegrees] (SPEC 6.2 fine rotation).
+  final double fineRotationDegrees;
   final PageFilter filter;
   final double brightness;
   final double contrast;
   final double sharpness;
+
+  /// Binarization cutoff (0.0-1.0) used only by [PageFilter.blackAndWhite]
+  /// (SPEC 6.2 adjustable threshold).
+  final double threshold;
   final bool removeShadowsAndStains;
 
   /// When true, the adapter re-detects the page on the decoded still and
@@ -36,6 +47,10 @@ class EnhancementRequest {
   /// gutter and keep the page closest to frame center. Book-spread halves
   /// are already one page, so they pass false.
   final bool splitOpenBook;
+
+  /// Copy [sourceImagePath] to [outputImagePath] and thumbnail only.
+  /// Used for native document-scanner output that is already cropped.
+  final bool passthrough;
 }
 
 class EnhancementResult {

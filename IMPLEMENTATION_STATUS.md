@@ -5,20 +5,26 @@ status, source files, tests, and verification evidence. Updated after every
 vertical slice. Nothing here is marked "done" unless it has been run and
 observed working, not just written.
 
-**Last updated:** 2026-09-04 (scanning revamp ready for physical-device
-validation). Android pins `org.opencv:opencv:4.11.0` and runs Canny/contour
-live+still detection in Kotlin (`OpenCvScanEngine`), with Dart
-contour/enhance/dewarp as fallback. Preview is letterboxed (not stretched).
-Still capture waits for AF/AE, re-detects the saved JPEG, and does not reuse
-preview geometry. Uncertain detections return null (no `Quad.captureGuide`
-auto-crop). Book halves use `splitOpenBook: false`; dewarp writes under
-`processed/`. Live camera / overlay / AF-wait / still re-detect are 🟡 —
-not marked ✅ until a physical-device pass. `flutter analyze` clean;
-`flutter test` 227/227 passing. Android `./gradlew :app:testDebugUnitTest`
-did not finish this session: host RAM dropped to ~57MB free and the Kotlin
-compile stalled (do not treat JVM tests as green). iOS OpenCV xcframework is
-not linked (Vision plugin reports unavailable → Dart fallback); iOS still
-re-detects via FrameMath on the saved JPEG.
+**Last updated:** 2026-09-23 (home header: no app name; search → scans).
+Home no longer shows “BookScanner”. Search (left) and Settings (right)
+sit on opposite sides; tapping search opens `/scans` with an autofocused
+search field. Inline home search bar removed.
+
+**Environment verified in:** macOS 26.6.2 (darwin-arm64), Flutter 3.38.7,
+Xcode 26.6, Android SDK 36.1, Android emulator `Medium_Phone_API_36.1`
+(API 36, virtual-scene back camera), iOS Simulator `iPhone 17 Pro` (iOS
+26.5, no camera hardware — Apple does not provide one in Simulator), and a
+**real physical Android device** (`S200`/`M24P`) used in earlier sessions.
+No physical iOS device available — see "Known blockers" at the end.
+
+Previous update, 2026-09-16 (SPEC §6 closable gaps + industry retain-original).
+Industry-standard: keep `originalImagePath` for crop/filter reprocess; UI
+(library/review/home) prefers `processedImagePath` so the raw still is not
+shown until editing. Page labels, dismissible anomaly warnings, OCR language
+picker, PDF page size/orientation/margins/watermark UI, print + Save as on
+completed export. Still deferred (honest): PDF password encryption,
+annotations/signatures/redaction, QR/barcode + dedicated ID/receipt capture
+engines, handwriting/math OCR, cloud backup, Markdown/DOCX tables.
 **Environment verified in:** macOS 26.6.2 (darwin-arm64), Flutter 3.38.7,
 Xcode 26.6, Android SDK 36.1, Android emulator `Medium_Phone_API_36.1`
 (API 36, virtual-scene back camera), iOS Simulator `iPhone 17 Pro` (iOS
@@ -32,6 +38,32 @@ No physical iOS device available — see "Known blockers" at the end.
 - 🟡 Implemented, not yet independently verified
 - ⛔ Not started
 - 🚫 Blocked by external dependency (documented below)
+
+---
+
+## SPEC-V1 §6 functional requirements (matrix)
+
+| Spec | Item | Status | Notes |
+|---|---|---|---|
+| 6.1 | Live edge detection, auto/manual capture, flash/zoom/focus/exposure | 🟡 | Live preview path; auto-capture + countdown + continuous + haptics/audio ✅ in tests |
+| 6.1 | Gallery / PDF import | ✅ / 🟡 | Gallery + PDF import wired; PDF flattened on import |
+| 6.1 | ID / receipt / QR-barcode modes | ⛔ | Enum exists; UI only Document + Book. QR scanner not built |
+| 6.1 | Real-time quality warnings | 🟡 | Blur/low-light primary on live path; full set partial |
+| 6.2 | Crop / perspective / filters / adjustments / revert-to-original | ✅ | Original retained; processed shown in UI; crop edits original |
+| 6.2 | Book dewarp + spread split | 🟡 | Classical dewarp; split UI ✅ |
+| 6.3 | Multi-page session, resume, anomalies, metadata, RTL order | ✅ / 🟡 | Page labels UI ✅; dismissible warnings ✅; 500-page mem smoke not run |
+| 6.4 | OCR English + language picker, search/select/copy/edit, searchable PDF | ✅ / 🟡 | Language UI ✅ (Latin set); Android confidence often constant 1.0 |
+| 6.4 | Full layout (tables/captions/figures), handwriting/math | ⛔ | Heuristics only; handwriting capability false |
+| 6.5 | PDF export options, searchable/image, compose, compress, watermark | ✅ / 🟡 | UI for size/orientation/margins/watermark + compress estimate; unit-tested export |
+| 6.5 | Share / print / save-as | 🟡 | Share + print (`printing`) + Save as (`FilePicker.saveFile`) wired; device verify pending |
+| 6.5 | Password encryption | 🚫 | Explicit `ProviderException`; not faked |
+| 6.5 | Annotations / highlights / signatures / redaction | ⛔ | Deferred |
+| 6.6 | Markdown export | ✅ | Tables ⛔ (layout) |
+| 6.7 | DOCX export | ✅ | Tables/footnotes/headers ⛔ (layout) |
+| 6.8 | Library folders/tags/favorites/trash/search/rename/batch-rename | ✅ / 🟡 | Screens exist; size sort still missing; cloud ⛔ |
+| 6.9 | Local-only, app lock, strip-location setting, training opt-in | ✅ / 🟡 | Unlock gate wired; secure_storage unused (no secrets yet) |
+| 6.10 | Copyright acknowledgement + large-export ack | ✅ | Book setup checkbox; export dialog |
+| 6.11 | a11y / l10n / RTL UI | 🟡 | ARB English only; shutter/flash/auto Semantics present; RTL UI untested |
 
 ---
 
@@ -57,12 +89,12 @@ No physical iOS device available — see "Known blockers" at the end.
 | Item | Status | Evidence |
 |---|---|---|
 | Kotlin plugin registered via `MainActivity` (switched to `FlutterFragmentActivity` for `LifecycleOwner`) | ✅ | `android/.../MainActivity.kt`, `capture/CapturePlugin.kt` |
-| CameraX Preview bound to Flutter `Texture` (no vendor preview widget) | ✅ | `CameraXCaptureController.bindPreviewSurface`; **visually confirmed on-device**: emulator's virtual-scene camera streams live through the Flutter UI |
+| CameraX Preview bound to Flutter `Texture` (no vendor preview widget) | 🟡 (live `camera` preview for documents and books; pending device rebuild) | Production capture is `CameraPackageCaptureProvider` for both modes so the capture screen can show a live preview, blue page overlay, and Auto/Manual capture. `cunning_document_scanner` / `ModeAwareCaptureProvider` remain in the tree as unused fallbacks, not the primary UI. Not ✅ until seen on a physical device after rebuild. |
 | ImageAnalysis with `STRATEGY_KEEP_ONLY_LATEST`, every `ImageProxy` closed | ✅ | `CaptureAnalyzer.analyze` closes in a `finally` block |
 | Classical edge/blur/exposure/motion analysis (Kotlin) | ✅ | `FrameMath.kt` — Sobel edge energy projection profile, Laplacian-variance sharpness, luminance exposure, frame-diff motion |
 | Full-resolution still capture via `ImageCapture` | ✅ | `CameraXCaptureController.captureStill`; **verified on-device**: produces a real JPEG under app-private `filesDir/captures/` |
 | Manual shutter | ✅ | Verified on-device: single tap → exactly one persisted page |
-| Auto-capture with stability gates | ✅ | `CaptureViewModel._onAnalysis` |
+| Auto-capture with stability gates | 🟡 (unit-tested; not re-timed on device) | Auto/Manual toggle. Fires after a **2000ms** stable `gatesSatisfied` window (countdown ring on the shutter), then waits for an unstable frame before re-arming unless continuous capture is on. Mid-session crop navigation was removed — pages stay on the camera until Continue. |
 | Auto-capture duplicate-avoidance ("avoids duplicates during page turns," SPEC 17.3 gate 2) | ✅ | **Bug found and fixed via on-device testing**: initial version re-fired every ~600ms on a static scene (no re-arm guard); fixed with an edge-triggered `_awaitingSceneChange` flag that requires an unstable frame before re-arming. Verified: single stable scene now yields exactly 1 capture, not a runaway sequence. |
 | Flash/torch, zoom, tap-to-focus/expose | ✅ (code) / 🟡 (untested — emulator has no physical flash/zoom hardware to exercise) | `CameraXCaptureController` |
 | Capabilities reporting (`hasFlash`, `supportsZoom`) | ✅ | `CapturePlugin.handleCapabilities` |
@@ -120,9 +152,9 @@ device-only/TestFlight distribution builds remain untested.
 | Item | Status | Evidence |
 |---|---|---|
 | Capture screen: permission flow, live preview, warnings banner, shutter, page counter | ✅ | `lib/ui/features/capture/`; verified on-device |
-| Page detection (classical Dart + native OpenCV still path) | 🟡 (unit-tested; live OpenCV overlay not yet seen on a physical device this session) | Dart `page_detection.dart` v2.3.0 returns null for uncertain/non-quad paper (no `Quad.captureGuide` auto-crop). Android `OpenCvScanEngine` (OpenCV 4.11.0) runs Canny/contours on live luma and the saved still. iOS Vision plugin reports unavailable until the xcframework is linked; still re-detect uses FrameMath on the JPEG. Tests: L-shape → null; native provider falls back to Dart when the plugin is missing. |
+| Page detection (classical Dart + native OpenCV still path) | 🟡 (unit-tested; live OpenCV overlay not yet seen on a physical device this session) | Dart `page_detection.dart` v2.3.0 returns null for uncertain/non-quad paper (no `Quad.captureGuide` auto-crop). Android `OpenCvScanEngine` (OpenCV 4.11.0) runs Canny/contours on live luma and the saved still. iOS Vision plugin reports unavailable until the xcframework is linked; still re-detect uses FrameMath on the JPEG. Tests: L-shape → null; native provider falls back to Dart when the plugin is missing. **Session 6 fix:** `OpenCvScanEngine.detectMat` previously required `approxPolyDP` to land on exactly 4 points at one fixed epsilon (`pts.size != 4` → `continue`), silently discarding every otherwise-good contour whose edge wasn't already a clean quad — a curved book-page edge, a glare break splitting one straight edge into two segments, or a folded/occluded corner all commonly approximate to 5-8 points. This was found by comparing against the Dart fallback detector (`page_detection.dart`'s `_approximateQuad`), which already handled this correctly via convex-hull + iterative-smallest-triangle-area reduction to 4 points. Ported that same reduction into `OpenCvQuadMath.convexHull`/`reduceToQuad` (pure Kotlin, no OpenCV `.so` needed) and wired it into `detectMat` in place of the exact-4 requirement. Verified: 5 new JVM unit tests in `OpenCvQuadMathTest` (bowed-edge hull, corner-chamfer pentagon reduction) plus the 4 pre-existing ones all green via `./gradlew :app:testDebugUnitTest`; `flutter analyze`/`flutter test` unaffected (Dart side untouched) and still clean/green. Not yet verified against a real photographed curved book page on-device — that requires a physical/emulated Android run this environment doesn't have free memory for right now. |
 | Perspective correction / crop | ✅ (engine + auto-detect path unit-tested) / ✅ (manual 4-corner UI) | `DartImageEnhancementProvider._rectify` via `img.copyRectify` (true 4-point perspective map, destination sized to the quad's own edge lengths). **Session 5:** auto-detect now feeds a real perspective quad into this warp, so a photographed page is trimmed to its edges and the background is dropped — chained in `pipeline_corpus_test.dart`'s skew case (output corners are page content, not the dark background). Manual 4-corner UI in §4a remains for correction when auto-detect misses. Engine tests in `dart_image_enhancement_provider_test.dart` (background removed >98%, 15° skew warps flat, output preserves the quad's aspect ratio). |
-| Filters (original/enhanced/grayscale/B&W/photo) | ✅ | `_applyFilter` in the enhancement provider; UI: `FilterAdjustmentScreen`'s `ChoiceChip` row, entered from Page Review's new "Filter & adjust" popup-menu action. `CapturePageUseCase.reprocessPage` already threaded `filter` end-to-end before this session — the gap was UI-only, confirmed by reading the use case first rather than assumed. |
+| Filters (original/enhanced/grayscale/B&W/photo) | 🟡 (default Document/enhancedColor; live crop+filter preview; not on device this session) | Default is `kDefaultCaptureFilter` = `enhancedColor` (industry document look). Filter changes re-render from original+saved crop (not the full camera still). Adjust/post-capture show a real preview JPEG. |
 | Brightness/contrast/sharpness adjustment | ✅ | `FilterAdjustmentScreen`'s 3 `Slider`s, same screen as above. Live preview is a deliberate GPU-side `ColorFilter.matrix` approximation (grayscale/B&W/brightness/contrast), not pixel-identical to the real `package:image` pipeline that only runs once on Save — documented in `_colorMatrixFor`'s doc comment, not hidden. Unit-tested (`test/ui/filter_adjustment_view_model_test.dart`) and widget-tested (`test/ui/filter_adjustment_screen_test.dart`). |
 | Shadow/stain flattening | ✅ | illumination-normalization via blurred-background division; behavior now also covered by `test/data/scanner/dart_image_enhancement_provider_test.dart` (previously untested provider) and `test/pipeline_corpus/pipeline_corpus_test.dart`'s "shadows" corpus entry |
 | Quality scoring + rescan flagging | ✅ | Laplacian-variance sharpness → `PageStatus.needsRescan` below 0.35. **Documented characteristic, made explicit by new tests**: the score is purely a blur/sharpness proxy with no exposure/luminance term at all — a dim-but-crisp image scores as well as a bright-but-crisp one, and a "low light" capture only scores low because real-world low light also tends to be blurry/noisy, not because darkness itself is penalized. See `dart_image_enhancement_provider_test.dart`'s "low light" group. |
@@ -131,9 +163,10 @@ device-only/TestFlight distribution builds remain untested.
 | `CaptureViewModel` disposed-while-capturing crash | 🟡 (fixed, redeploying) | **Real crash found on the same physical-device test pass, session 4** (in `flutter_run` logcat, not from a written test): `E/flutter: Unhandled Exception: A CaptureViewModel was used after being disposed`, thrown from `notifyListeners()` inside `captureManually`'s `finally` block, stack-traced to `capture_view_model.dart:215`. Root cause: the user navigated away from the Capture screen (disposing its `CaptureViewModel`) while a shutter tap was still mid-pipeline; `dispose()` cancels the analysis subscription but has no way to cancel an already-in-flight `captureManually()` call, so it completed afterward and called `notifyListeners()` on a disposed `ChangeNotifier`, which asserts in debug builds. Fixed with a `_disposed` flag set in `dispose()` and a `_notify()` helper (replacing every direct `notifyListeners()` call in the class) that no-ops once disposed. Regression test added: `capture_screen_test.dart`'s "captureManually completing after the view model is disposed does not throw" gates `captureStill()` on a `Completer`, calls `dispose()` while the capture is still awaiting it, then completes the gate and asserts the capture future still resolves without throwing. Not yet re-observed live on-device as of this entry (rebuild in progress). |
 | Capture framing guide on the camera preview (SPEC 9.3: "Return normalized corner coordinates and overlay geometry to Flutter; apply the platform camera-preview transform before drawing guidance") | 🟡 (redesigned per on-device feedback, redeploying) | **Real gap, not previously built at all** — only the text warning banner rendered before this session, no visual framing aid at all. First attempt tracked `FrameAnalysis.quad` live (a polygon following the detector frame-to-frame); **the resolution/crop/dispose fixes above were confirmed working on-device via a real screenshot** (capture no longer hung, blur warning rendered correctly) — and that same screenshot showed the live-tracking outline visibly wobbling, which the user correctly called out as worse than a still target. Replaced with `_CaptureFrameGuide`/`_CaptureFrameGuidePainter` (key `captureFrameGuide`): a fixed corner-bracket rectangle (6%/8% insets) the user aligns the *phone* to, matching TapScanner/most scanner apps, still colored green/white by the live `cornersStable` signal so it gives feedback without moving. Widget-tested (`capture_screen_test.dart`: present immediately on preview-up, unaffected by an incoming analysis frame) — the redesigned version itself not yet seen on-device as of this entry. |
 | Shutter only tappable once the capture session is actually open | ✅ | **Bug found via `integration_test/book_scan_session_test.dart` (see §12), not just written to spec.** `CaptureViewModel.initialize()` calls `notifyListeners()` with `permissionState == granted` *before* `await _openSession()` resolves, so `CaptureScreen` rendered a live, tappable shutter button while `_sessionOpen` was still `false`; tapping it then hit `captureManually`'s `if (_capturing \|\| !_sessionOpen) return const [];` guard and silently no-oped -- no error, no capture, no feedback. First surfaced as an integration test failure (page count stayed at 0 after two shutter taps) that looked environmental at first (see the emulator-restart note in §12) but reproduced identically on a freshly restarted, healthy emulator, which is what pointed at a real race rather than instability. Fixed in `capture_screen.dart` by adding a `!_viewModel.sessionOpen` gate (in `_buildCaptureUi`, key `captureSessionOpening`) that shows a spinner instead of the shutter until the session is confirmed open. Locked in by a new widget test in `test/ui/capture_screen_test.dart` that holds `openSession()` open via a `Completer` and asserts the shutter is absent until it's released. |
-| Auto-capture disabled — capture is manual-shutter-only | ✅ (deliberate SPEC 17.3 deviation) | **Real on-device UX problem, user-reported and confirmed via a screenshot from the same test pass.** SPEC 17.3's auto-capture (fire once a frame holds every quality gate for a ~600ms stable window) used the exact same `_capturing`/spinner UI state as a manual capture, so the shutter visibly locked out and started spinning on its own while the user was still lining up the shot -- indistinguishable from the app being unresponsive, and it took control away from the user mid-session. Removed the triggering logic entirely from `CaptureViewModel._onAnalysis` (still records `_latestAnalysis` for the warning banner and the capture frame guide's color) and the now-`auto`-param-free `captureManually()`. Regression test in `capture_screen_test.dart`: 5 consecutive "all gates satisfied" analysis frames plus 1s of elapsed time produce zero captured pages -- only a manual shutter tap does. |
+| Auto-capture disabled — capture is manual-shutter-only | ✅ (superseded 2026-09-15) | Restored as Auto/Manual. Auto uses a flash, not the shutter spinner. Manual still ignores live quality warnings. |
+| Manual shutter swallowed by live quality warnings | 🟡 (unit-tested; redeploying) | **Real gap, user-reported 2026-09-14 ("capture does not work… review pages is empty").** After auto-capture was removed, a leftover gate still no-op'd `captureManually()` whenever live analysis reported blur/clipped-edges/`focusAcceptable=false`. On the Galaxy A05 that banner is nearly always on, so shutter taps saved nothing and Done opened an empty Review. Gate removed (SPEC 9.2 manual capture); warnings stay on the banner and the page. Done is disabled while a capture is in flight. Test: `quality warnings do not block a manual shutter tap`. |
 | Back navigation from Page Review to the project list (Library) | ✅ | **Real bug, user-reported ("not able to go back to the list of scans page").** Root cause: `NewScanSheetRoute._createAndGo` and `CaptureScreen`'s "Done" handler both used `context.go(...)`, which replaces the *entire* go_router location stack rather than pushing onto it -- Library (and, for the "Add page" re-entry point, the prior Page Review instance) was being stripped out of the back stack, so Page Review's `AppBar` had nothing left to pop back to. Fixed by switching both to `context.pushReplacement(...)`: each replaces only the screen whose job just finished (the mode picker; the just-closed Capture session) while leaving whatever was already beneath it intact, so the back button correctly returns to Library (or, for "Add page," the previous Review instance) either way. |
-| Post-capture "Name this scan" dialog | ✅ | **New feature, user-requested.** `NewScanSheetRoute` seeds every new project with a generic mode-based title ("Document"/"Book") and there was no way to rename it until much later (Library's `renameProject` had no UI wired to it at all -- see §5/§11). Added a modal shown when "Done" is tapped on a normal (non-rescan) capture session: `_NameScanDialog` in `capture_screen.dart`, a `TextField` pre-filled with `DateFormat('MM-dd HH:mm').format(DateTime.now())` (e.g. "09-01 14:23"), Cancel/Save. Save calls the new `CaptureViewModel.renameProject(title)` (delegates to `ProjectRepository.renameProject`) before navigating to Review; Cancel just keeps the generic default and navigates anyway -- a name is always present either way, never blank. Unit-tested (`renameProject delegates to the project repository`) and widget-tested (dialog appears on Done, pre-filled value matches the timestamp format) in `capture_screen_test.dart`; all 5 integration test files that tap "Done" updated to accept the new dialog (tap `captureNameSaveButton`) before it, since it now blocks the old immediate navigation. |
+| Post-capture page edit then "Name this scan" | 🟡 (unit/widget-tested; not on device this session) | **Tap order:** Continue → `PostCaptureEditScreen` auto-opens crop for the current page, then filters / brightness / contrast, Next/Save (crop again on the next page), then the name dialog, then Review. Sources: `post_capture_edit_screen.dart`, `post_capture_edit_view_model.dart`. Integration helpers: `integration_test/support/post_capture_helpers.dart`. |
 | Frozen-frame + loading indicator during per-capture processing | ✅ (unit-tested; freeze-on-click overlay not yet seen on device this session) | `_capturing` is set before `await captureStill()`. Until the JPEG path exists, `CaptureScreen` dims the live preview (`captureShutterScrim`). Once the file is ready, `_FrozenCapturePreview` takes over as before. ViewModel test: capturing is true while `captureStill` is still gated. |
 | Frozen-frame zoom-to-guide animation | ✅ | **New feature, user-requested** ("animate to focus on the content within the guides like in TapScanner...indicates to the user content outside the guides will be ignored"). `_FrozenCapturePreview` now runs a `TweenAnimationBuilder` (400ms, `Curves.easeOutCubic`) that scales the frozen image up around its center so the fixed frame guide's bounded region ends up filling the preview -- a pure symmetric zoom, no panning needed, since the guide's insets (`_guideHorizontalInset`/`_guideVerticalInset`, now shared top-level constants instead of duplicated private ones so the painter and this animation can't drift apart) are symmetric and the guide is therefore always centered. Live and frozen previews now use letterboxing (`AspectRatio` +
 `BoxFit.contain`) so the camera is not stretched; overlay math lives in
@@ -149,8 +182,8 @@ manually adjust all four corners."
 
 | Item | Status | Evidence |
 |---|---|---|
-| `CropCorrectionViewModel` (load page, decode intrinsic image size, drag/clamp corners, reset-to-full-frame, reset-to-detected, apply) | ✅ | `lib/ui/features/page_review/view_models/crop_correction_view_model.dart`; 6 unit tests in `test/ui/crop_correction_view_model_test.dart`, all passing |
-| `CropCorrectionScreen` (letterboxed image via `applyBoxFit`, draggable corner handles, quad overlay, auto-detect/reset actions, Cancel/Save) | ✅ | `lib/ui/features/page_review/views/crop_correction_screen.dart`; 2 widget tests in `test/ui/crop_correction_screen_test.dart`, all passing |
+| `CropCorrectionViewModel` (load page, decode intrinsic image size, drag/clamp corners, Tap-style edge slide via intersection, reset-to-full-frame, reset-to-detected, apply) | ✅ | `lib/ui/features/page_review/view_models/crop_correction_view_model.dart`; unit tests in `test/ui/crop_correction_view_model_test.dart` (incl. skewed-edge slide) |
+| `CropCorrectionScreen` (letterboxed image, **8 handles**: 4 corners + 4 edge mids, whole-quad pan, **single** pan recognizer hit-test, active highlight + haptics, dim-outside mask, **no magnifier**, auto-detect/reset, Cancel/Save) | ✅ | `lib/ui/features/page_review/views/crop_correction_screen.dart`; widget tests expect all 8 `cropHandle-*` keys |
 | Route + entry point from Page Review (tap row or popup-menu "Crop") | ✅ | `AppRoutes.cropCorrection` in `lib/routing/app_router.dart`; wired in `page_review_screen.dart` |
 | Apply persists `cropPoints` and re-runs enhancement for just that page | ✅ | `CapturePageUseCase.reprocessPage`; unit-tested and confirmed on-device (see below) |
 | **On-device verification (Android emulator, real captured pages, not synthetic)** | ✅ | Captured real pages end-to-end, opened Page Review, tapped into a page, dragged the top-left handle with `adb shell input swipe` — only that corner moved, matching unit-tested behavior. Tapped Save; screen navigated back to Review pages (confirming `apply()` completed without error). Re-opened the same page's crop screen and confirmed the dragged corner position was reloaded from persisted storage — proves the crop is actually written to and read back from the repository, not just held in transient view-model state. |
@@ -185,8 +218,8 @@ fired on those auto-captured near-identical frames ("Possible duplicate",
 | Missing-page detection (printed page-number gaps) | ✅ | `_findMissingSequenceGaps`; unit-tested |
 | Duplicate/OCR-text similarity | ✅ | Now unblocked by task 10's OCR pipeline. `DetectPageAnomaliesUseCase` adds a second, independent duplicate signal: token-Jaccard similarity (≥0.85) over each page's recognized OCR text, only for pages the perceptual image hash didn't already flag — catches a re-scan of the same physical page under different lighting/crop/rotation that pixel hashing misses. Unit-tested with a case specifically constructed so the image hash would miss it but the text signal catches it. |
 | 500+ page memory-safe handling | 🟡 | Architecture supports it (thumbnails separate from full-res files, no bulk in-memory loading, per-page background-isolate processing), but not load-tested at that scale |
-| Right-to-left books / page order direction | 🟡 | `PageOrderDirection` modeled in `ProjectMetadata`; not yet wired into any UI or export ordering logic |
-| Roman numerals / skipped/unnumbered pages | 🟡 | `logicalPageLabel` is a free-form string that supports this, but no UI exists yet to *set* page numbering schemes |
+| Right-to-left books / page order direction | 🟡 (wired in book setup UI; not yet seen on device) | `PageOrderDirection` on `ProjectMetadata`; `BookSetupScreen` lets the user pick LTR/RTL before capture; `ProcessBookSpreadUseCase` already orders split pages from that field. Export ordering still follows `pageOrder` (which capture writes in that sequence). |
+| Roman numerals / skipped/unnumbered pages | 🟡 | Free-form `logicalPageLabel` + Page Review menu "Page number / label" dialog (`pageLabelAction`); scheme presets (auto Cover/Roman/Arabic) not built |
 
 ## 6. Book mode (SPEC 5.2, 6.2, 6.3, 9.3) — task 9
 
@@ -202,10 +235,13 @@ SPEC 9.3 describes as the target — see documented limitations below.
 |---|---|---|
 | `DartBookDewarpProvider` — Sobel column-energy gutter detection, quadratic top/bottom-edge curve fitting for flattening, HSV skin-tone occlusion heuristic | ✅ | `lib/data/services/scanner/adapters/dart_book_dewarp_provider.dart`; 7 unit tests (`test/data/scanner/dart_book_dewarp_provider_test.dart`) covering clear/low-confidence gutter detection, explicit-override splitting, flat-page passthrough, real-curvature flattening, and core-region-vs-margin-only occlusion classification |
 | `BookDewarpProvider.splitSpread` extended with an optional `gutterXOverride` for manual correction, full confidence when user-specified | ✅ | `lib/domain/providers/book_dewarp_provider.dart` |
-| `ProcessBookSpreadUseCase` — orchestrates split → per-half detect/enhance/dewarp → persist two cross-linked (`spreadSiblingPageId`) pages in correct reading-order sequence per `PageOrderDirection`; `resplit()` for manual correction | ✅ | `lib/domain/use_cases/process_book_spread_use_case.dart`; 7 unit tests (`test/domain/process_book_spread_use_case_test.dart`) |
+| `ProcessBookSpreadUseCase` — orchestrates split → per-half detect/enhance/dewarp → persist two cross-linked (`spreadSiblingPageId`) pages in correct reading-order sequence per `PageOrderDirection`; `resplit()` for manual correction; `processSinglePage()` for SPEC 5.2 single-page book mode (dewarp, no split) | ✅ | `lib/domain/use_cases/process_book_spread_use_case.dart`; unit tests in `test/domain/process_book_spread_use_case_test.dart` |
 | Undivided spread photo retention (needed for manual re-split) | ✅ | `ProcessBookSpreadUseCase.spreadOriginalPathFor` — deterministic, order-independent shared storage key derived from both sibling page ids; verified round-trip in its own test |
 | Finger/occlusion → `QualityWarning.fingerCovering` + `PageStatus.needsRescan` on high-confidence text loss, warning-only (no rescan) on margin-only occlusion | ✅ | Same use-case tests; never silently removes/inpaints pixels (SPEC 9.3) |
-| Capture flow wiring: book-type projects route through the spread pipeline instead of the single-page one, page order direction read from project metadata | ✅ | `CaptureViewModel.captureManually` now returns `List<ScanPage>` (1 for documents, 2 for book spreads) |
+| Capture flow wiring: book-type projects route through the spread/single-page book pipeline instead of the document one, page order direction and scan mode read from project metadata | 🟡 (unit-tested; not re-run on device this session) | `CaptureViewModel` always runs `ProcessBookSpreadUseCase` for books (`processCapture` or `processSinglePage` per `BookScanMode`) and `CapturePageUseCase` for documents. Live stills come from `captureStill()` in both modes. Tests: `capture_screen_test.dart` (spread → 2 pages, single-page → 1 dewarped page). |
+| Book onboarding (SPEC 5.2 step 2 + 6.10): optional title/author/language/starting page/scan mode/reading order, plus copyright acknowledgement before capture | 🟡 (unit/widget-tested; not seen on device this session) | `BookSetupScreen` / `BookSetupViewModel`; New Scan → Book goes to `/projects/:id/book-setup` instead of Capture. Continue is disabled until the copyright checkbox. Tests: `test/ui/book_setup_screen_test.dart`. |
+| `BookScanMode` persisted on `ProjectMetadata` (schema v2 `book_scan_mode`) | ✅ | Domain + SQLite migration; `test/domain/project_metadata_test.dart`, `test/data/project_repository_impl_test.dart` |
+| Mode-aware capture backend (SPEC 9.6): live `camera` for documents and books | 🟡 (unit-tested; not seen on device this session) | Production `service_locator.dart` registers `CameraPackageCaptureProvider`. `ModeAwareCaptureProvider` still has unit tests but is not the production adapter. |
 | Manual split-correction UI (`SpreadSplitScreen`/`ViewModel`): shows the undivided spread photo with one draggable vertical gutter handle, Cancel/Save | ✅ | `lib/ui/features/page_review/{view_models,views}/spread_split_*.dart`; 3 widget tests (`test/ui/spread_split_screen_test.dart`), built against a *real* `ProcessBookSpreadUseCase` + real classical provider (not fully mocked), so the tests exercise genuine file I/O and pipeline orchestration |
 | Entry point: "Re-split spread" in Page Review's popup menu, shown only when `page.spreadSiblingPageId != null` | ✅ | `page_review_screen.dart` |
 | DI registration | ✅ | `service_locator.dart` |
@@ -343,15 +379,15 @@ recognition plus cross-platform layout reconstruction.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Multi-page PDF, page size/orientation/margins/quality options | ✅ | `DartDocumentExportProvider.exportPdf`; unit-tested (`dart_document_export_provider_test.dart`) — verifies `%PDF-`/`%%EOF` markers and page-object count |
+| Multi-page PDF, page size/orientation/margins/quality options | ✅ / 🟡 | Provider + Export UI pickers (`pdfOptionsPanel`); unit-tested assembly |
 | Image-only export | ✅ | same |
 | Searchable export (invisible text layer) | ✅ **verified end-to-end on-device with real OCR data** | Ran a Searchable PDF export against the project containing the real-OCR test page from §7. Pulled the resulting PDF off the Android emulator via `run-as`, decompressed its FlateDecode content streams with a throwaway Python/zlib script (since no PDF text-extraction tool was available in this environment), and confirmed the literal `Tj`/`TJ` show-text operators contain the exact recognized words — `[(Hello)]TJ ... [(BookScanner)]TJ` and `[(This)]TJ [(is)]TJ [(a)]TJ [(real)]TJ [(OCR)]TJ [(test)]TJ [(line.)]TJ` — each positioned over its corresponding word in the page image (`/I17 Do`). This is genuine proof the invisible-text overlay carries real, per-word OCR output into the exported file, not just a structural/mechanism check. |
-| Watermark | ✅ | `_watermark` in the same file |
+| Watermark | ✅ / 🟡 | Provider `_watermark` + Export UI `pdfWatermarkField`; unit-tested provider; end-to-end watermark visual not device-checked this session |
 | Password protection / encryption | 🚫 | **Deliberately not implemented, not faked.** Explored the `pdf` package's low-level `PdfEncryption` hook (Standard Security Handler, RC4) but scoped it out of this session to prioritize core scanning; `exportPdf` throws an explicit `ProviderException(unsupportedDevice, "PDF password protection is not yet implemented")` rather than silently shipping an unprotected file when a password was requested. Verified via test: `dart_document_export_provider_test.dart` asserts the exception is thrown. |
 | Merge/split/insert/replace/extract/duplicate/rotate/reorder/delete pages | 🟡 (implemented, unit/widget-tested; not yet verified on-device) | See §8a below |
-| Compress with size estimate/preview | ⛔ | Not started (out of scope for this slice — deferred by explicit choice, along with annotations below, to keep the page-operations slice reviewable on its own) |
-| Annotations, highlights, signatures, redaction | ⛔ | Not started (deferred, see above) |
-| Share / system file picker / print | 🟡 | `share_plus` wired in `ExportScreen` for the completed-export share action; system file picker and print not wired |
+| Compress with size estimate/preview | ✅ | Compress dialog on Export (`compressQualitySlider` + live `estimatePdfSizeBytes`); unit/widget-covered |
+| Annotations, highlights, signatures, redaction | ⛔ | Not started (deferred) |
+| Share / system file picker / print | 🟡 | Share + Print (`Printing.layoutPdf`) + Save as (`FilePicker.saveFile`) on `ExportCompletedView`; device verify pending |
 
 ### 8a. Multi-source page-composition ("editing") — task 11, first slice
 
@@ -461,21 +497,21 @@ specifically exercises the behavior driven by it.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Library: recent items, search, favorites | ✅ | `LibraryScreen`/`LibraryViewModel`; widget-tested (empty/loaded/search-filter states) |
+| Library: recent items, search, favorites | 🟡 (mint compact hub; widget-tested, not seen on device this session) | Greeting + stats + 2×2 Quick Actions (Scan Document / Scan Book / Gallery / Import) + All/Documents/Books chips. Inter 10–13pt, Lucide, first-page thumbnails. Tests: `library_screen_test.dart`, `library_view_model_test.dart`. |
 | Library rows with a per-project context menu (Delete; Recognize text) | ✅ | **User-requested, session 4.** Replaced the `GridView`-of-`ProjectGridTile`-cards layout with `ListView.builder` of `ProjectListRow` (key `libraryList`, was `libraryGrid`) — each row shows the thumbnail, title, and a `{count} pages` subtitle, with a trailing favorite toggle plus a `PopupMenuButton` (key `projectRowMenu`) offering "Delete" (wired to the existing `LibraryViewModel.moveToTrash`, already implemented, just never exposed before) and "Recognize text" (present but `enabled: false` -- whole-project text extraction, distinct from the existing per-page OCR action, is a real future feature, not hidden but explicitly not yet built, per the user's own "to be impl later"). `project_grid_tile.dart` deleted as fully superseded. Widget-tested: menu shows both items with Recognize text disabled; tapping Delete removes the row and the project falls out of the default (non-trashed) query. |
-| Folders/tags | 🟡 | Repository + DB layer complete (`FolderRepositoryImpl`); no UI to create/assign folders or tags yet |
-| Trash/recovery | 🟡 | `moveToTrash`/`restoreFromTrash` implemented and unit-tested, and `moveToTrash` now has a real UI trigger (the library row's Delete menu item above); still no dedicated trash/recovery screen to undo it from |
-| Rename (single) | ✅ | wired in `LibraryViewModel`; still no UI affordance in the library row itself (the new "Name this scan" dialog on Capture's Done — see §4 — covers naming a project right after it's created, which was the more pressing gap) |
-| Batch rename | ⛔ | Not started |
-| Sort/filter, thumbnail/list views | 🟡 | List view now (was grid — see the library-rows row above); sort/filter options not exposed in UI |
+| Folders/tags | 🟡 | `FoldersScreen` / `FolderContentsScreen` + library tag/folder actions |
+| Trash/recovery | 🟡 | `TrashScreen` + restore/delete; widget-tested (`trash_screen_test.dart`) |
+| Rename (single) | 🟡 | Library Rename in the row menu (`LibraryViewModel.renameProject`) |
+| Batch rename | 🟡 | `library_screen.dart` `_batchRename` pattern rename |
+| Sort/filter, thumbnail/list views | 🟡 | List/grid + sort date/title/pageCount; size sort still missing |
 | Cloud backup/sync | ⛔ | Out of MVP scope per SPEC 8; no provider selected |
-| App lock (biometric/PIN) | ✅ | `SettingsScreen`/`SettingsViewModel` using `local_auth`; not yet enforced at app launch (settings toggle exists and persists, but nothing currently gates entry to the app behind it) |
-| Encrypted storage | 🟡 | Local DB and files use standard app-private storage (already sandboxed by the OS); `flutter_secure_storage` dependency is added but not yet used for anything — no secrets currently need it since there's no password/API-key state yet |
-| Cloud-processing consent gating | 🟡 | `AppSettings.cloudProcessingConsentGiven` modeled and displayed; no cloud provider exists yet to gate, so the consent flow has nothing to gate in front of |
-| EXIF/location stripping on export | 🟡 | `AppSettings.stripLocationMetadata` setting exists; **not actually enforced yet** — the enhancement pipeline re-encodes JPEGs via `package:image`, which does not carry forward EXIF GPS tags by default (a side effect, not a verified deliberate strip), so this needs an explicit test before being marked done |
-| Copyright/responsible-use onboarding notice | ⛔ | Not built |
-| Accessibility (screen reader labels, dynamic text, contrast, reduced motion) | 🟡 | Standard Material widgets inherit reasonable defaults; no explicit `Semantics` audit performed; capture screen's shutter button has an explicit `Semantics(button: true, label: ...)` as a start |
-| RTL layout | ⛔ | Not tested — no RTL locale configured or exercised |
+| App lock (biometric/PIN) | ✅ | Settings toggle + `UnlockScreen` / router redirect via `AppLockController` |
+| Encrypted storage | 🟡 | App-private storage; `flutter_secure_storage` unused (no secrets yet) |
+| Cloud-processing consent gating | 🟡 | Modeled; no cloud provider to gate |
+| EXIF/location stripping on export | 🟡 | Setting default true; JPEG re-encode drops EXIF as side effect — needs explicit strip test |
+| Copyright/responsible-use onboarding notice | ✅ | `BookSetupScreen` copyright checkbox gates Continue; large-export ack on Export |
+| Accessibility (screen reader labels, dynamic text, contrast, reduced motion) | 🟡 | Shutter/flash/grid tooltips + auto Semantics; no full audit |
+| RTL layout | ⛔ | Document RTL order in book setup; UI locale RTL not exercised |
 
 ## 12. Testing (SPEC 13) — task 14
 
@@ -486,12 +522,12 @@ specifically exercises the behavior driven by it.
 | Unit tests: repositories (real SQLite) | ✅ | `test/data/*_impl_test.dart`, 6 files, all against `sqflite_common_ffi` |
 | Unit tests: export writers | ✅ | `test/data/export/*.dart` — PDF structural checks, Markdown UTF-8/front-matter/zip, DOCX OOXML well-formedness |
 | Contract tests: provider adapters | ✅ (fake only) | `capture_provider_contract_test.dart`, `ocr_provider_contract_test.dart`; needs to be re-pointed at the native Android/iOS adapters once they can run in an instrumented environment |
-| Widget tests | ✅ | `LibraryScreen`, `CropCorrectionScreen`, `OcrReviewScreen`, `PageReviewScreen` (Export-button-enables-after-async-load regression test), `SpreadSplitScreen`, `ExportScreen`, `SettingsScreen`, and `CaptureScreen` (permission-gating states plus a real manual-capture-increments-page-count flow) all covered (plus `ExportViewModel`'s async export success/failure behavior via plain `test()`s — see §8). Every top-level screen now has at least one widget test. |
+| Widget tests | ✅ | `LibraryScreen`, `BookSetupScreen`, `CropCorrectionScreen`, `OcrReviewScreen`, `PageReviewScreen` (Export-button-enables-after-async-load regression test), `SpreadSplitScreen`, `ExportScreen`, `SettingsScreen`, and `CaptureScreen` (permission-gating states plus a real manual-capture-increments-page-count flow) all covered (plus `ExportViewModel`'s async export success/failure behavior via plain `test()`s — see §8). Every top-level screen now has at least one widget test. |
 | Golden/corpus image tests | ✅ | See §12a below |
 | Integration tests (`integration_test/`) | 🟡 | `capture_flow_test.dart` and `book_scan_session_test.dart` **verified passing on-device** (Android emulator / iOS Simulator, see §3/§9). Four more files added this session covering the rest of SPEC 13's list — **written and reviewed, but not yet run**, since no emulator boot was safe this session (host memory oscillated between ~80MB-1GB free across checks; see §8a's note on the same constraint): `interrupted_session_recovery_test.dart` (already existed, not new this session — a captured page survives a simulated cold app restart before "Done" is tapped, proving SPEC 9.2's "persist immediately" claim), `provider_fallback_test.dart` (**found and fixed a real bug**: an always-throwing `PageDetectionProvider` used to abort the whole capture and lose the already-captured original image — see task 7's row above — now falls back to `Quad.fullFrame` and the capture completes normally), `rescan_test.dart` (the new in-place-replace rescan flow end to end: same page id, same page count, new image content), `pdf_docx_export_test.dart` (PDF and DOCX export each produce a real file with the correct format signature — Markdown was already covered by `book_scan_session_test.dart`). **Not covered, and not a testing gap**: "localization switching" — only `app_en.arb` exists (`AppLocalizations.supportedLocales == [Locale('en')]`); there is no second locale to switch to yet, so this SPEC 13 item is an open product/content gap (someone needs to author a real translation), not something a test can meaningfully exercise by faking a second locale. |
 | 300-page memory/performance test | ⛔ | Not started |
 | On-device manual verification | ✅ (Android + iOS) | See §2, §3, §4a, §7 |
-| Full suite passing | ✅ | `flutter test` → 195/195 passing (172 as of the golden/corpus-test milestone + 23 added for tasks 7/8/14's filter UI, grid view, in-place rescan, OCR-text-similarity duplicates, and the detection-fallback fix); `flutter analyze` clean. `capture_flow_test.dart`/`book_scan_session_test.dart` verified passing on-device as of session 2; the 4 newer `integration_test/` files are written/reviewed but not yet run on a device this session (see §12's integration-tests row). |
+| Full suite passing | ✅ | `flutter test` → 239/239 passing. `flutter analyze` still reports the same pre-existing warnings (unawaited_return in OpenCV adapters, unused detection helpers, deprecated `onReorder`) — no new analyzer errors. `capture_flow_test.dart`/`book_scan_session_test.dart` verified passing on-device as of session 2; `book_scan_session_test.dart` now also taps book-setup copyright/Continue (written, not re-run on device this session). |
 
 ### 12a. Golden/corpus image tests — task 14
 
@@ -543,6 +579,35 @@ here since they'll recur for any future `integration_test/` work:**
    that the grant reliably lands before the test's first permission
    check. This is a test-environment workaround, not a product change —
    a real user grants permission once and it persists normally.
+
+## 13. Manual multi-point crop correction (Tap Scanner parity) — task 15
+
+✅ **Implemented 2026-09-22** after inspecting `decom/` Tap Scanner
+`SimpleCropImageView` / `CropFragment`.
+
+**What Tap Scanner actually does** (from decompiled `mxd` touch enum +
+`SimpleCropImageView`): stores a **4-point** edge (`getEdge()` /
+`setEdge([PointF×4])`) and exposes **8 draggable hit targets** —
+`LEFT_TOP` / `RIGHT_TOP` / `LEFT_BOTTOM` / `RIGHT_BOTTOM` plus edge
+`LEFT` / `TOP` / `RIGHT` / `BOTTOM` — and a `CENTER` drag that moves the
+whole frame. Edge midpoints are derived (drawn from `Y0[]`); dragging an
+edge translates both endpoints. Perspective warp stays 4-point. Also:
+rotate L/R footer, Auto / No Crop, magnifier, valid/invalid stroke colors.
+
+**What we shipped** (matching the handle model the user asked for —
+“about 6”, Tap Scanner uses 8):
+| Item | Status | Evidence |
+|---|---|---|
+| 4 corner + 4 edge-midpoint handles | ✅ | `CropHandle` in `crop_correction_view_model.dart`; UI keys `cropHandle-*` |
+| Edge drag slides corners via adjacent-side intersection (Tap `d52.G`) | ✅ | Axis-locked edge translate + `_intersect`; skewed-edge unit test |
+| Center / whole-quad pan | ✅ | `moveQuad` + single canvas `GestureDetector` hit-test (no competing handle detectors) |
+| Dim-outside overlay; **magnifier removed** (user request) | ✅ | Overlay kept; loupe deleted from `crop_correction_screen.dart` |
+| Continue → crop → filters per page | 🟡 | Continue → first-page crop (`CropFlowMode.postCapture`); Next → filters (no crop AppBar button); filters Next → next page’s crop. Inset canvas `_canvasInset=36`. |
+| Still 4-point persistence / warp | ✅ | No DB/schema change; `reprocessPage` unchanged |
+| Rotate L/R on crop footer | ⛔ | Deferred (Tap has it; our rotation lives on page review for now) |
+
+Earlier “independent bowed-edge midpoint → 6-point mesh warp” design is
+**not** what Tap Scanner does and is not required for this parity pass.
 
 ---
 
@@ -599,3 +664,18 @@ here since they'll recur for any future `integration_test/` work:**
    regenerates thumbnails from that final image. OpenCV 4.11 is wired for
    Android page detection/enhance; iOS OpenCV linking is the remaining
    native step before physical iOS validation.
+6. **Deferred, not started:** a competitor crop screen was observed to
+   offer more than 4 draggable correction points (edge-midpoint handles
+   in addition to the 4 corners, for fine-tuning a bowed edge by hand).
+   SPEC-V1 §6.2/§9.7 currently specify "manual four-corner crop" and
+   "manual four-corner correction" explicitly; curved-page handling is
+   instead spec'd as automatic (`BookDewarpProvider`'s gutter detection +
+   quadratic curve fitting, see item 5). Adding manual edge-midpoint
+   handles would mean deliberately amending those two spec lines, plus
+   changes across `Quad`/geometry, both native detectors, the
+   crop-correction UI, the DB-persisted crop-points schema, and the
+   dewarp use case, with new contract/unit/widget tests throughout. Not
+   attempted this session — do this as its own scoped task, spec
+   amendment first. What *was* done this session instead, and is
+   unambiguously in scope, was fixing a real auto-detection bug on the
+   existing 4-corner contract (item above, "Page detection").

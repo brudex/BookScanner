@@ -95,6 +95,21 @@ abstract interface class DocumentExportProvider {
     ExportProgressCallback? onProgress,
   });
 
+  /// Dry-run estimate (no file written) of the PDF's output size in bytes
+  /// under [options] -- used by a compress-quality preview (SPEC 6.5).
+  Future<int> estimatePdfSizeBytes(
+    ExportDocumentInput input,
+    PdfExportOptions options,
+  );
+
+  /// Exports each page as a standalone JPG/PNG file, zipped together (SPEC
+  /// 6.5 "Convert... PDF pages to JPG/PNG").
+  Future<ExportOutput> exportImages(
+    ExportDocumentInput input,
+    ImageExportOptions options, {
+    ExportProgressCallback? onProgress,
+  });
+
   Future<ExportOutput> exportMarkdown(
     ExportDocumentInput input,
     MarkdownExportOptions options, {

@@ -2,22 +2,28 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../domain/models/capture_models.dart';
 import '../../../../domain/models/geometry.dart';
+import '../../../../domain/models/project.dart';
 import '../../../../domain/providers/capture_provider.dart';
 import '../../../../domain/repositories/page_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
+import '../../../../domain/repositories/settings_repository.dart';
 import '../../../../domain/use_cases/capture_page_use_case.dart';
 import '../../../../domain/use_cases/process_book_spread_use_case.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../../routing/app_router.dart';
 import '../../../core/di/service_locator.dart';
+import '../../../core/discard_unsaved_capture.dart';
+import '../../../core/theme/app_theme.dart';
 import '../view_models/capture_view_model.dart';
 import '../preview_layout.dart';
 import 'camera_preview_view.dart';
+import '../../page_review/views/crop_correction_screen.dart';
 
 /// Normalized fractional insets of the fixed capture frame guide from each
 /// edge of the preview -- shared with [Quad.captureGuide] so detection's
@@ -30,6 +36,7 @@ class CaptureScreen extends StatefulWidget {
     super.key,
     required this.projectId,
     this.replacePageId,
+    this.captureMode,
     this.viewModel,
   });
 
@@ -38,6 +45,9 @@ class CaptureScreen extends StatefulWidget {
   /// When set, this session replaces exactly this page's image (the
   /// "Rescan" action from Page Review) instead of appending new pages.
   final String? replacePageId;
+
+  /// Optional capture mode override (e.g. [CaptureMode.idCard] from Home).
+  final CaptureMode? captureMode;
   final CaptureViewModel? viewModel;
 
   @override
@@ -46,6 +56,7 @@ class CaptureScreen extends StatefulWidget {
 
 class _CaptureScreenState extends State<CaptureScreen> {
   late final CaptureViewModel _viewModel;
+  bool _showGrid = false;
 
   @override
   void initState() {
@@ -59,11 +70,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
           processBookSpreadUseCase: locator<ProcessBookSpreadUseCase>(),
           projectRepository: locator<ProjectRepository>(),
           pageRepository: locator<PageRepository>(),
+          settingsRepository: locator<SettingsRepository>(),
           replacePageId: widget.replacePageId,
-          onNeedsCropCorrection: (pageId) {
-            if (!mounted) return;
-            context.push(AppRoutes.cropCorrectionFor(widget.projectId, pageId));
-          },
+          preferredCaptureMode: widget.captureMode,
         );
     _viewModel.initialize();
     _viewModel.addListener(_onViewModelChanged);
@@ -87,11 +96,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
     final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(l10n.captureTitle),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-      ),
       body: ListenableBuilder(
         listenable: _viewModel,
         builder: (context, _) => _buildBody(context, l10n),
@@ -146,129 +150,99 @@ class _CaptureScreenState extends State<CaptureScreen> {
         ),
       );
     }
-    return Column(
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        Expanded(
-          child: Stack(
-            fit: StackFit.expand,
+        if (_viewModel.resultPreviewPath != null)
+          _ProcessedResultPreview(path: _viewModel.resultPreviewPath!)
+        else if (_viewModel.frozenPreviewPath != null)
+          _FrozenCapturePreview(path: _viewModel.frozenPreviewPath!)
+        else
+          _LivePreview(
+            textureId: _viewModel.previewTextureId,
+            preview: _viewModel.livePreview,
+            aspectRatio: _viewModel.previewAspectRatio,
+            analysis: _viewModel.latestAnalysis,
+            focusIndicator: _viewModel.focusIndicator,
+            showGrid: _showGrid,
+            onTapFocus: _viewModel.setFocusAndExposurePoint,
+          ),
+        if (_viewModel.capturing &&
+            _viewModel.frozenPreviewPath == null &&
+            _viewModel.resultPreviewPath == null)
+          _viewModel.captureFromAuto
+              ? const _AutoCaptureFlash()
+              : const _CaptureShutterScrim(),
+        SafeArea(
+          child: Column(
             children: [
-              if (_viewModel.resultPreviewPath != null)
-                _ProcessedResultPreview(path: _viewModel.resultPreviewPath!)
-              else if (_viewModel.frozenPreviewPath != null)
-                _FrozenCapturePreview(path: _viewModel.frozenPreviewPath!)
-              else
-                _LivePreview(
-                  textureId: _viewModel.previewTextureId,
-                  aspectRatio: _viewModel.previewAspectRatio,
-                  analysis: _viewModel.latestAnalysis,
-                  focusIndicator: _viewModel.focusIndicator,
-                  onTapFocus: _viewModel.setFocusAndExposurePoint,
-                ),
-              if (_viewModel.capturing &&
-                  _viewModel.frozenPreviewPath == null &&
-                  _viewModel.resultPreviewPath == null)
-                const _CaptureShutterScrim(),
+              _CaptureTopBar(
+                l10n: l10n,
+                flashMode: _viewModel.flashMode,
+                autoCaptureEnabled: _viewModel.autoCaptureEnabled,
+                capturing: _viewModel.capturing,
+                showGrid: _showGrid,
+                onBack: () async {
+                  if (_viewModel.pageCount > 0) {
+                    await _viewModel.closeSession();
+                    if (!mounted) return;
+                    await discardUnsavedCapture(widget.projectId);
+                    if (!mounted) return;
+                    this.context.go(AppRoutes.library);
+                    return;
+                  }
+                  if (!mounted) return;
+                  this.context.pop();
+                },
+                onToggleGrid: () => setState(() => _showGrid = !_showGrid),
+                onFlash: _viewModel.cycleFlashMode,
+                onToggleAuto: _viewModel.toggleAutoCapture,
+              ),
               _WarningBanner(
                 analysis: _viewModel.latestAnalysis,
                 l10n: l10n,
                 shutterHint: _viewModel.shutterHint,
-                awaitingOverride: _viewModel.awaitingQualityOverride,
-                onCaptureAnyway: () =>
-                    _viewModel.captureManually(bypassQualityGate: true),
+              ),
+              const Spacer(),
+              _CaptureControls(
+                pageCount: _viewModel.pageCount,
+                capturing: _viewModel.capturing,
+                captureFromAuto: _viewModel.captureFromAuto,
+                autoCaptureEnabled: _viewModel.autoCaptureEnabled,
+                autoCaptureProgress: _viewModel.autoCaptureProgress,
+                autoCaptureSecondsRemaining:
+                    _viewModel.autoCaptureSecondsRemaining,
+                lastPagePreviewPath: _viewModel.lastPagePreviewPath,
+                zoomLevel: _viewModel.zoomLevel,
+                isBook: _viewModel.projectType == ProjectType.book,
+                l10n: l10n,
+                onShutter: () => _viewModel.captureManually(),
+                onZoom: _viewModel.setZoom,
+                onImport: _importFromGallery,
+                onDone: () async {
+                  if (_viewModel.pageCount == 0) return;
+                  await _viewModel.closeSession();
+                  if (!mounted) return;
+                  // Tap Scanner order: Continue → crop → filters → name.
+                  final pageId = await _viewModel.firstPageIdOrdered();
+                  if (!mounted || pageId == null) return;
+                  this.context.pushReplacement(
+                    AppRoutes.cropCorrectionFor(widget.projectId, pageId),
+                    extra: CropFlowMode.postCapture,
+                  );
+                },
               ),
             ],
           ),
         ),
-        _CaptureControls(
-          pageCount: _viewModel.pageCount,
-          capturing: _viewModel.capturing,
-          flashMode: _viewModel.flashMode,
-          zoomLevel: _viewModel.zoomLevel,
-          shutterHint: _viewModel.shutterHint,
-          l10n: l10n,
-          onShutter: () => _viewModel.captureManually(),
-          onFlash: _viewModel.cycleFlashMode,
-          onZoom: _viewModel.setZoom,
-          onDone: () async {
-            await _viewModel.closeSession();
-            if (!mounted) return;
-            final name = await _promptScanName(this.context, l10n);
-            if (!mounted) return;
-            final trimmed = name?.trim();
-            if (trimmed != null && trimmed.isNotEmpty) {
-              await _viewModel.renameProject(trimmed);
-            }
-            if (!mounted) return;
-            // `pushReplacement`, not `go`: `go` replaces the whole route
-            // stack, stripping out everything below Capture (Library, and
-            // for the "Add page" entry point, the prior Page Review
-            // instance) so there was no way back from Review to the
-            // project list afterward.
-            this.context.pushReplacement(
-              AppRoutes.pageReviewFor(widget.projectId),
-            );
-          },
-        ),
       ],
     );
   }
-}
 
-/// Shown once when the user taps "Done" on a normal (non-rescan) capture
-/// session, so a project doesn't stay stuck with its generic mode-based
-/// default title ("Document"/"Book" -- see `NewScanSheetRoute`). Defaults
-/// to a timestamp rather than leaving the field empty, since a name is
-/// always required to be useful in the project list.
-Future<String?> _promptScanName(BuildContext context, AppLocalizations l10n) =>
-    showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _NameScanDialog(l10n: l10n),
-    );
-
-class _NameScanDialog extends StatefulWidget {
-  const _NameScanDialog({required this.l10n});
-
-  final AppLocalizations l10n;
-
-  @override
-  State<_NameScanDialog> createState() => _NameScanDialogState();
-}
-
-class _NameScanDialogState extends State<_NameScanDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: DateFormat('MM-dd HH:mm').format(DateTime.now()),
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.l10n.nameScanTitle),
-      content: TextField(
-        key: const ValueKey('captureNameField'),
-        controller: _controller,
-        autofocus: true,
-        decoration: InputDecoration(labelText: widget.l10n.nameScanLabel),
-      ),
-      actions: [
-        TextButton(
-          key: const ValueKey('captureNameCancelButton'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(widget.l10n.cancel),
-        ),
-        FilledButton(
-          key: const ValueKey('captureNameSaveButton'),
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(widget.l10n.save),
-        ),
-      ],
-    );
+  Future<void> _importFromGallery() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (file == null || !mounted) return;
+    await _viewModel.importStill(file.path);
   }
 }
 
@@ -292,6 +266,112 @@ class _CaptureShutterScrim extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AutoCaptureFlash extends StatelessWidget {
+  const _AutoCaptureFlash();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      key: ValueKey('captureAutoFlash'),
+      color: Color(0x66FFFFFF),
+    );
+  }
+}
+
+class _CaptureTopBar extends StatelessWidget {
+  const _CaptureTopBar({
+    required this.l10n,
+    required this.flashMode,
+    required this.autoCaptureEnabled,
+    required this.capturing,
+    required this.showGrid,
+    required this.onBack,
+    required this.onToggleGrid,
+    required this.onFlash,
+    required this.onToggleAuto,
+  });
+
+  final AppLocalizations l10n;
+  final FlashMode flashMode;
+  final bool autoCaptureEnabled;
+  final bool capturing;
+  final bool showGrid;
+  final VoidCallback onBack;
+  final VoidCallback onToggleGrid;
+  final VoidCallback onFlash;
+  final VoidCallback onToggleAuto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: onBack,
+            icon: const Icon(
+              LucideIcons.chevronLeft,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('captureGridButton'),
+            tooltip: l10n.captureGrid,
+            onPressed: onToggleGrid,
+            icon: Icon(
+              showGrid ? LucideIcons.grid2x2 : LucideIcons.grid2x2X,
+              color: Colors.white,
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('captureFlashButton'),
+            onPressed: capturing ? null : onFlash,
+            tooltip: switch (flashMode) {
+              FlashMode.off => l10n.captureFlashOff,
+              FlashMode.on => l10n.captureFlashOn,
+              FlashMode.auto => l10n.captureFlashAuto,
+              FlashMode.torch => l10n.captureTorch,
+            },
+            icon: Icon(switch (flashMode) {
+              FlashMode.off => LucideIcons.zapOff,
+              FlashMode.on => LucideIcons.zap,
+              FlashMode.auto => LucideIcons.sparkles,
+              FlashMode.torch => LucideIcons.flashlight,
+            }, color: Colors.white),
+          ),
+          const Spacer(),
+          TextButton(
+            key: const ValueKey('captureAutoToggle'),
+            onPressed: capturing ? null : onToggleAuto,
+            child: Semantics(
+              button: true,
+              label: autoCaptureEnabled
+                  ? l10n.captureAutoLabel
+                  : l10n.captureManualLabel,
+              child: Row(
+                children: [
+                  Text(
+                    autoCaptureEnabled
+                        ? l10n.captureAutoLabel
+                        : l10n.captureManualLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(LucideIcons.arrowLeftRight, color: Colors.white),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -396,11 +476,7 @@ class _PermissionRationale extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.no_photography_outlined,
-              color: Colors.white70,
-              size: 56,
-            ),
+            const Icon(LucideIcons.cameraOff, color: Colors.white70, size: 56),
             const SizedBox(height: 16),
             Text(
               message,
@@ -423,16 +499,20 @@ class _PermissionRationale extends StatelessWidget {
 class _LivePreview extends StatelessWidget {
   const _LivePreview({
     required this.textureId,
+    this.preview,
     required this.aspectRatio,
     required this.analysis,
     required this.focusIndicator,
+    required this.showGrid,
     required this.onTapFocus,
   });
 
   final int? textureId;
+  final Widget? preview;
   final double aspectRatio;
   final FrameAnalysis? analysis;
   final Offset? focusIndicator;
+  final bool showGrid;
   final Future<void> Function(double x, double y) onTapFocus;
 
   @override
@@ -460,6 +540,7 @@ class _LivePreview extends StatelessWidget {
                 },
                 child: CameraPreviewView(
                   textureId: textureId,
+                  preview: preview,
                   aspectRatio: aspectRatio,
                   letterbox: false,
                 ),
@@ -469,10 +550,21 @@ class _LivePreview extends StatelessWidget {
               rect: fitted,
               child: _DetectedPolygonOverlay(analysis: analysis),
             ),
-            Positioned.fromRect(
-              rect: fitted,
-              child: const _CaptureFrameGuide(),
-            ),
+            if (showGrid)
+              Positioned.fromRect(
+                rect: fitted,
+                child: const IgnorePointer(
+                  child: CustomPaint(
+                    painter: _GridPainter(),
+                    size: Size.infinite,
+                  ),
+                ),
+              ),
+            if (!_hasLiveQuad(analysis))
+              Positioned.fromRect(
+                rect: fitted,
+                child: const _CaptureFrameGuide(),
+              ),
             if (focusIndicator != null)
               Positioned(
                 left: fitted.left + focusIndicator!.dx * fitted.width - 20,
@@ -497,6 +589,33 @@ class _LivePreview extends StatelessWidget {
       },
     );
   }
+}
+
+bool _hasLiveQuad(FrameAnalysis? analysis) {
+  final quad = analysis?.quad;
+  return analysis != null &&
+      quad != null &&
+      analysis.confidence >= DetectionThresholds.minConfidence;
+}
+
+class _GridPainter extends CustomPainter {
+  const _GridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white24
+      ..strokeWidth = 1;
+    for (var i = 1; i <= 2; i++) {
+      final x = size.width * i / 3;
+      final y = size.height * i / 3;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Static alignment brackets. Color does not go green — a confident
@@ -575,17 +694,14 @@ class _DetectedPolygonOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final analysis = this.analysis;
     final quad = analysis?.quad;
-    final show =
-        analysis != null &&
-        quad != null &&
-        analysis.confidence >= DetectionThresholds.minConfidence;
+    final show = _hasLiveQuad(analysis);
     if (!show) return const SizedBox.shrink();
     return IgnorePointer(
       child: CustomPaint(
         key: const ValueKey('captureDetectedPolygon'),
         painter: _DetectedPolygonPainter(
-          quad: quad,
-          stable: analysis.cornersStable,
+          quad: quad!,
+          stable: analysis!.cornersStable,
         ),
         size: Size.infinite,
       ),
@@ -610,11 +726,19 @@ class _DetectedPolygonPainter extends CustomPainter {
       )
       ..lineTo(quad.bottomLeft.x * size.width, quad.bottomLeft.y * size.height)
       ..close();
-    final paint = Paint()
-      ..color = stable ? const Color(0xFF4CD964) : const Color(0xFFFFCC00)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    canvas.drawPath(path, paint);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppTheme.accent.withValues(alpha: 0.28)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppTheme.accent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
   }
 
   @override
@@ -627,15 +751,11 @@ class _WarningBanner extends StatelessWidget {
     required this.analysis,
     required this.l10n,
     this.shutterHint,
-    this.awaitingOverride = false,
-    this.onCaptureAnyway,
   });
 
   final FrameAnalysis? analysis;
   final AppLocalizations l10n;
   final String? shutterHint;
-  final bool awaitingOverride;
-  final VoidCallback? onCaptureAnyway;
 
   @override
   Widget build(BuildContext context) {
@@ -650,45 +770,34 @@ class _WarningBanner extends StatelessWidget {
       _ => null,
     };
     final message = warningText.isNotEmpty ? warningText.first : hint;
-    if (message == null && !awaitingOverride) return const SizedBox.shrink();
-    return Positioned(
-      top: 16,
-      left: 16,
-      right: 16,
+    if (message == null) return const SizedBox.shrink();
+    final isHold = warningText.isEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
       child: Material(
-        color: Colors.black87,
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(20),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Column(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (message != null)
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.amber,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        message,
-                        style: const TextStyle(color: Colors.white),
-                        semanticsLabel: message,
-                      ),
-                    ),
-                  ],
+              if (!isHold) ...[
+                const Icon(
+                  LucideIcons.triangleAlert,
+                  color: Colors.amber,
+                  size: 20,
                 ),
-              if (awaitingOverride) ...[
-                const SizedBox(height: 8),
-                TextButton(
-                  key: const ValueKey('captureAnywayButton'),
-                  onPressed: onCaptureAnyway,
-                  child: Text(l10n.captureAnyway),
-                ),
+                const SizedBox(width: 8),
               ],
+              Flexible(
+                child: Text(
+                  message,
+                  style: const TextStyle(color: Colors.white),
+                  semanticsLabel: message,
+                  textAlign: TextAlign.center,
+                ),
+              ),
             ],
           ),
         ),
@@ -711,79 +820,114 @@ class _CaptureControls extends StatelessWidget {
   const _CaptureControls({
     required this.pageCount,
     required this.capturing,
-    required this.flashMode,
+    required this.captureFromAuto,
+    required this.autoCaptureEnabled,
+    required this.autoCaptureProgress,
+    required this.autoCaptureSecondsRemaining,
+    required this.lastPagePreviewPath,
     required this.zoomLevel,
-    required this.shutterHint,
+    required this.isBook,
     required this.l10n,
     required this.onShutter,
     required this.onDone,
-    required this.onFlash,
     required this.onZoom,
+    required this.onImport,
   });
 
   final int pageCount;
   final bool capturing;
-  final FlashMode flashMode;
+  final bool captureFromAuto;
+  final bool autoCaptureEnabled;
+  final double autoCaptureProgress;
+  final int? autoCaptureSecondsRemaining;
+  final String? lastPagePreviewPath;
   final double zoomLevel;
-  final String? shutterHint;
+  final bool isBook;
   final AppLocalizations l10n;
   final VoidCallback onShutter;
   final VoidCallback onDone;
-  final VoidCallback onFlash;
   final ValueChanged<double> onZoom;
+  final VoidCallback onImport;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+    final busy = capturing && !captureFromAuto;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          Slider(
+            key: const ValueKey('captureZoomSlider'),
+            value: zoomLevel,
+            onChanged: busy ? null : onZoom,
+            semanticFormatterCallback: (_) => l10n.captureZoom,
+          ),
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              IconButton(
-                key: const ValueKey('captureFlashButton'),
-                onPressed: capturing ? null : onFlash,
-                tooltip: switch (flashMode) {
-                  FlashMode.off => l10n.captureFlashOff,
-                  FlashMode.on => l10n.captureFlashOn,
-                  FlashMode.auto => l10n.captureFlashAuto,
-                  FlashMode.torch => l10n.captureTorch,
-                },
-                icon: Icon(switch (flashMode) {
-                  FlashMode.off => Icons.flash_off,
-                  FlashMode.on => Icons.flash_on,
-                  FlashMode.auto => Icons.flash_auto,
-                  FlashMode.torch => Icons.highlight,
-                }, color: Colors.white),
+              Text(
+                l10n.modeDocument.toUpperCase(),
+                style: TextStyle(
+                  color: isBook ? Colors.white38 : Colors.white,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                ),
               ),
-              Expanded(
-                child: Slider(
-                  key: const ValueKey('captureZoomSlider'),
-                  value: zoomLevel,
-                  onChanged: capturing ? null : onZoom,
-                  semanticFormatterCallback: (_) => l10n.captureZoom,
+              const SizedBox(width: 24),
+              Text(
+                l10n.modeBook.toUpperCase(),
+                style: TextStyle(
+                  color: isBook ? Colors.white : Colors.white38,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 8),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                l10n.pagesScanned(pageCount),
-                key: const ValueKey('capturePageCount'),
-                style: const TextStyle(color: Colors.white),
-              ),
-              _ShutterButton(capturing: capturing, onPressed: onShutter),
-              TextButton(
-                key: const ValueKey('captureDoneButton'),
-                onPressed: onDone,
-                child: Text(
-                  l10n.doneScanning,
-                  style: const TextStyle(color: Colors.white),
+              Expanded(
+                child: Column(
+                  children: [
+                    IconButton(
+                      key: const ValueKey('captureImportButton'),
+                      onPressed: busy ? null : onImport,
+                      tooltip: l10n.captureImport,
+                      icon: const Icon(
+                        LucideIcons.image,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                    Text(
+                      l10n.captureImport,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              _ShutterButton(
+                capturing: busy,
+                autoMode: autoCaptureEnabled,
+                autoProgress: autoCaptureProgress,
+                autoSecondsRemaining: autoCaptureSecondsRemaining,
+                onPressed: onShutter,
+              ),
+              Expanded(
+                child: pageCount == 0
+                    ? const SizedBox.shrink()
+                    : _ContinueControl(
+                        pageCount: pageCount,
+                        previewPath: lastPagePreviewPath,
+                        enabled: !busy,
+                        label: l10n.doneScanning,
+                        onPressed: onDone,
+                      ),
               ),
             ],
           ),
@@ -793,37 +937,227 @@ class _CaptureControls extends StatelessWidget {
   }
 }
 
-class _ShutterButton extends StatelessWidget {
-  const _ShutterButton({required this.capturing, required this.onPressed});
+class _ContinueControl extends StatelessWidget {
+  const _ContinueControl({
+    required this.pageCount,
+    required this.previewPath,
+    required this.enabled,
+    required this.label,
+    required this.onPressed,
+  });
 
-  final bool capturing;
+  final int pageCount;
+  final String? previewPath;
+  final bool enabled;
+  final String label;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
+    // TapScanner-style: big accent "Continue" callout above the last-page
+    // thumb + count badge. Whole column is one tap target.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const ValueKey('captureDoneButton'),
+        onTap: enabled ? onPressed : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: AppTheme.accent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x66007AFF),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+              CustomPaint(
+                size: const Size(14, 7),
+                painter: _ContinueCaretPainter(AppTheme.accent),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 44,
+                          height: 52,
+                          child: previewPath == null
+                              ? const ColoredBox(color: Colors.white24)
+                              : Image.file(
+                                  File(previewPath!),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) =>
+                                      const ColoredBox(color: Colors.white24),
+                                ),
+                        ),
+                      ),
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '$pageCount',
+                            key: const ValueKey('capturePageCount'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 2),
+                    child: Icon(
+                      LucideIcons.chevronRight,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ContinueCaretPainter extends CustomPainter {
+  _ContinueCaretPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..lineTo(size.width, 0)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ContinueCaretPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+class _ShutterButton extends StatelessWidget {
+  const _ShutterButton({
+    required this.capturing,
+    required this.autoMode,
+    required this.autoProgress,
+    required this.autoSecondsRemaining,
+    required this.onPressed,
+  });
+
+  final bool capturing;
+  final bool autoMode;
+  final double autoProgress;
+  final int? autoSecondsRemaining;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final showTimer = autoMode && autoProgress > 0 && !capturing;
     return Semantics(
       button: true,
       label: 'Capture page',
       child: GestureDetector(
         key: const ValueKey('shutterButton'),
         onTap: capturing ? null : onPressed,
-        child: Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 4),
-            color: capturing ? Colors.grey : Colors.white24,
-          ),
-          child: capturing
-              ? const Padding(
-                  padding: EdgeInsets.all(20),
+        child: SizedBox(
+          width: 84,
+          height: 84,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 5),
+                  color: capturing ? Colors.white24 : AppTheme.accent,
+                ),
+                child: capturing
+                    ? const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 3,
+                        ),
+                      )
+                    : showTimer && autoSecondsRemaining != null
+                    ? Text(
+                        '$autoSecondsRemaining',
+                        key: const ValueKey('captureAutoCountdown'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                          height: 1.0,
+                        ),
+                      )
+                    : null,
+              ),
+              if (showTimer)
+                SizedBox(
+                  width: 84,
+                  height: 84,
                   child: CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 3,
+                    key: const ValueKey('captureAutoTimerRing'),
+                    value: autoProgress.clamp(0.0, 1.0),
+                    strokeWidth: 4,
+                    color: const Color(0xFF4C9BFF),
+                    backgroundColor: Colors.white24,
                   ),
-                )
-              : null,
+                ),
+            ],
+          ),
         ),
       ),
     );

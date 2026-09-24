@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 
 import '../../../../domain/models/scan_page.dart';
 import '../../../../domain/repositories/page_repository.dart';
@@ -36,14 +40,60 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
   double _sharpness = 0;
   double get sharpness => _sharpness;
 
+  double _fineRotationDegrees = 0;
+  double get fineRotationDegrees => _fineRotationDegrees;
+
+  double _threshold = 0.5;
+  double get threshold => _threshold;
+
   bool _loading = true;
   bool get loading => _loading;
 
   bool _saving = false;
   bool get saving => _saving;
 
+  bool _previewRendering = false;
+  bool get previewRendering => _previewRendering;
+
   Object? _error;
   Object? get error => _error;
+
+  /// Bumped whenever a preview JPEG is rewritten so [Image.file] keys change.
+  int _previewEpoch = 0;
+  int get previewEpoch => _previewEpoch;
+
+  String? _livePreviewPath;
+  Timer? _previewDebounce;
+  int _previewToken = 0;
+
+  /// True when controls match the last saved page — show that processed JPEG.
+  bool get showingSavedProcessed {
+    final page = _page;
+    if (page == null) return false;
+    final processed = page.processedImagePath;
+    if (processed == null || processed.isEmpty) return false;
+    return _filter == page.filter &&
+        _brightness == page.brightness &&
+        _contrast == page.contrast &&
+        _sharpness == page.sharpness &&
+        _threshold == page.threshold &&
+        _fineRotationDegrees == page.fineRotationDegrees;
+  }
+
+  /// True when a real crop+filter preview JPEG is ready (not a ColorFilter
+  /// approximation on the full original).
+  bool get showingRenderedPreview =>
+      showingSavedProcessed || (_livePreviewPath != null && !showingSavedProcessed);
+
+  /// Prefer: saved processed → live rendered preview (cropped+filtered) →
+  /// last processed (keeps crop framing) → original as last resort.
+  String? get previewImagePath {
+    final page = _page;
+    if (page == null) return null;
+    if (showingSavedProcessed) return page.processedImagePath;
+    if (_livePreviewPath != null) return _livePreviewPath;
+    return page.processedImagePath ?? page.originalImagePath;
+  }
 
   Future<void> initialize() async {
     try {
@@ -54,11 +104,7 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      _page = page;
-      _filter = page.filter;
-      _brightness = page.brightness;
-      _contrast = page.contrast;
-      _sharpness = page.sharpness;
+      _adoptPage(page);
     } on Exception catch (e) {
       _error = e;
     } finally {
@@ -67,39 +113,143 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
     }
   }
 
+  /// Re-reads the page from the repository (e.g. after crop correction) and
+  /// resets controls to the newly saved look.
+  Future<void> reloadFromRepository() async {
+    final page = await _pageRepository.getPage(pageId);
+    if (page == null) return;
+    final path = page.processedImagePath;
+    if (path != null) {
+      await _evictProcessedPreview(path);
+    }
+    _livePreviewPath = null;
+    _adoptPage(page);
+    _previewEpoch++;
+    notifyListeners();
+  }
+
+  void _adoptPage(ScanPage page) {
+    _page = page;
+    _filter = page.filter;
+    _brightness = page.brightness;
+    _contrast = page.contrast;
+    _sharpness = page.sharpness;
+    _fineRotationDegrees = page.fineRotationDegrees;
+    _threshold = page.threshold;
+    _error = null;
+  }
+
+  Future<void> _evictProcessedPreview(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      await FileImage(File(path)).evict();
+    } on Object {
+      // PaintingBinding not available outside widget tests / the app.
+    }
+  }
+
   void selectFilter(PageFilter filter) {
     _filter = filter;
+    _scheduleLivePreview();
     notifyListeners();
   }
 
   void setBrightness(double value) {
     _brightness = value;
+    _scheduleLivePreview();
     notifyListeners();
   }
 
   void setContrast(double value) {
     _contrast = value;
+    _scheduleLivePreview();
     notifyListeners();
   }
 
   void setSharpness(double value) {
     _sharpness = value;
+    _scheduleLivePreview();
     notifyListeners();
   }
 
-  Future<bool> apply() async {
+  void setFineRotationDegrees(double value) {
+    _fineRotationDegrees = value;
+    _scheduleLivePreview();
+    notifyListeners();
+  }
+
+  void setThreshold(double value) {
+    _threshold = value;
+    _scheduleLivePreview();
+    notifyListeners();
+  }
+
+  void _scheduleLivePreview() {
+    _previewDebounce?.cancel();
+    if (showingSavedProcessed) {
+      _livePreviewPath = null;
+      _previewRendering = false;
+      return;
+    }
+    _previewDebounce = Timer(const Duration(milliseconds: 180), () {
+      unawaited(_renderLivePreview());
+    });
+  }
+
+  Future<void> _renderLivePreview() async {
     final page = _page;
-    if (page == null) return false;
-    _saving = true;
+    if (page == null || showingSavedProcessed) return;
+    final token = ++_previewToken;
+    _previewRendering = true;
     notifyListeners();
     try {
-      await _capturePageUseCase.reprocessPage(
+      final path = await _capturePageUseCase.renderAdjustedPreview(
         page,
         filter: _filter,
         brightness: _brightness,
         contrast: _contrast,
         sharpness: _sharpness,
+        fineRotationDegrees: _fineRotationDegrees,
+        threshold: _threshold,
       );
+      if (token != _previewToken) return;
+      await _evictProcessedPreview(path);
+      _livePreviewPath = path;
+      _previewEpoch++;
+    } on Object catch (e) {
+      if (token != _previewToken) return;
+      _error = e;
+    } finally {
+      if (token == _previewToken) {
+        _previewRendering = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<bool> apply() async {
+    final page = _page;
+    if (page == null) return false;
+    _previewDebounce?.cancel();
+    _saving = true;
+    notifyListeners();
+    try {
+      final updated = await _capturePageUseCase.reprocessPage(
+        page,
+        filter: _filter,
+        brightness: _brightness,
+        contrast: _contrast,
+        sharpness: _sharpness,
+        fineRotationDegrees: _fineRotationDegrees,
+        threshold: _threshold,
+      );
+      final path = updated.processedImagePath;
+      if (path != null) {
+        await _evictProcessedPreview(path);
+      }
+      _livePreviewPath = null;
+      _page = updated;
+      _previewEpoch++;
       return true;
     } on Exception catch (e) {
       _error = e;
@@ -108,5 +258,20 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
       _saving = false;
       notifyListeners();
     }
+  }
+
+  /// Cancels an in-flight live-preview debounce (call from the screen's
+  /// dispose even when the view model itself is owned by a test).
+  void cancelPendingPreview() {
+    _previewDebounce?.cancel();
+    _previewDebounce = null;
+    _previewToken++;
+    _previewRendering = false;
+  }
+
+  @override
+  void dispose() {
+    cancelPendingPreview();
+    super.dispose();
   }
 }

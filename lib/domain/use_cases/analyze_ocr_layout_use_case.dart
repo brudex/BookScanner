@@ -19,9 +19,17 @@ import '../models/ocr_block.dart';
 ///    order.
 ///  - Headings are a single level (`headingLevel` is always 1); no
 ///    heading-hierarchy detection.
-///  - Table/table-cell detection is not implemented; grid-like content is
-///    classified as ordinary paragraphs. A future adapter version could add
-///    this without changing the contract.
+///  - Table detection is a geometric grid heuristic (2+ rows, 3+
+///    aligned columns -- 2 columns is indistinguishable from ordinary
+///    2-column running text, so real 2-column tables are not detected) --
+///    it has no notion of merged/spanning cells, and a caption/legend line
+///    touching the grid's edge can be misread as an extra row if it
+///    happens to align.
+///  - Caption, embedded-image, and QR/barcode blocks are never produced:
+///    OCR only sees text lines, not image regions, so there is no reliable
+///    signal to detect them from text geometry alone. Building a heuristic
+///    for these would be guessing, not detection -- left honestly
+///    unimplemented rather than faked.
 class AnalyzeOcrLayoutUseCase {
   AnalyzeOcrLayoutUseCase({Uuid? uuid}) : _uuid = uuid ?? const Uuid();
 
@@ -38,6 +46,12 @@ class AnalyzeOcrLayoutUseCase {
     caseSensitive: false,
   );
   static final RegExp _listItemPattern = RegExp(r'^(\d+[.)]\s|[-•*]\s)');
+  static final RegExp _footnotePattern = RegExp(r'^(\d{1,2}|\*|†)[\s.]');
+
+  /// Vertical tolerance (as a fraction of [_median] line height) for
+  /// clustering cells into the same table row/column in [_detectTableRun].
+  static const double _tableRowToleranceMultiplier = 0.4;
+  static const double _tableColumnAlignmentTolerance = 0.15;
 
   List<OcrBlock> call(String pageId, List<OcrBlock> rawLines) {
     if (rawLines.isEmpty) return const [];
@@ -49,16 +63,32 @@ class AnalyzeOcrLayoutUseCase {
     final pageWidth = 1.0;
 
     // 1. Split into runs separated by "wide" (column-spanning) lines,
-    // ordered top-to-bottom.
+    // ordered top-to-bottom. Each run is checked for a table grid first;
+    // only non-table runs go through column-run ordering.
     final sorted = [...rawLines]
       ..sort((a, b) => geo[a]!.centerY.compareTo(geo[b]!.centerY));
 
     final orderedLines = <OcrBlock>[];
+    final tableCells = <OcrBlock, (int, int)>{};
     var runStart = 0;
     void flushRun(int endExclusive) {
       if (endExclusive <= runStart) return;
       final run = sorted.sublist(runStart, endExclusive);
-      orderedLines.addAll(_orderColumnRun(run, geo, pageWidth));
+      final table = _detectTableRun(run, geo, medianHeight);
+      if (table != null) {
+        tableCells.addAll(table);
+        final cells = table.keys.toList()
+          ..sort((a, b) {
+            final ra = table[a]!;
+            final rb = table[b]!;
+            return ra.$1 != rb.$1
+                ? ra.$1.compareTo(rb.$1)
+                : ra.$2.compareTo(rb.$2);
+          });
+        orderedLines.addAll(cells);
+      } else {
+        orderedLines.addAll(_orderColumnRun(run, geo, pageWidth));
+      }
     }
 
     for (var i = 0; i < sorted.length; i++) {
@@ -71,13 +101,17 @@ class AnalyzeOcrLayoutUseCase {
     }
     flushRun(sorted.length);
 
-    // 2. Classify each raw line independently.
+    // 2. Classify each raw line independently (table cells were already
+    // decided by the grid-detection pass above).
     final classified = <OcrBlock, BlockType>{};
     for (final line in orderedLines) {
-      classified[line] = _classifyLine(line, geo[line]!, medianHeight);
+      classified[line] = tableCells.containsKey(line)
+          ? BlockType.tableCell
+          : _classifyLine(line, geo[line]!, medianHeight);
     }
 
     // 3. Merge consecutive same-run "paragraph" lines into single blocks.
+    // Table cells are never merged.
     final result = <OcrBlock>[];
     var i = 0;
     while (i < orderedLines.length) {
@@ -102,7 +136,7 @@ class AnalyzeOcrLayoutUseCase {
       i = j;
     }
 
-    // 4. Assign final ids/pageId/readingOrder/blockType.
+    // 4. Assign final ids/pageId/readingOrder/blockType/table position.
     return [
       for (var k = 0; k < result.length; k++)
         _finalize(
@@ -110,8 +144,66 @@ class AnalyzeOcrLayoutUseCase {
           pageId,
           k,
           classified[result[k]] ?? BlockType.paragraph,
+          tableCells[result[k]],
         ),
     ];
+  }
+
+  /// Detects whether [run] forms a table grid: 2+ rows of 3+ cells each,
+  /// same cell count per row, with each column's x-position aligned across
+  /// rows. Returns a map of each cell line to its (row, column) within the
+  /// grid, or null if [run] isn't a table (the common case -- ordinary
+  /// paragraph/heading runs never match this shape). Rows are formed by
+  /// clustering lines whose `top` values are within a small tolerance of
+  /// each other, since real table rows share (near-)identical vertical
+  /// position across their cells; a wider tolerance risks merging two
+  /// genuinely different lines of body text into a false row.
+  Map<OcrBlock, (int, int)>? _detectTableRun(
+    List<OcrBlock> run,
+    Map<OcrBlock, _Geometry> geo,
+    double medianHeight,
+  ) {
+    if (run.length < 4 || medianHeight <= 0) return null;
+    final byTop = [...run]..sort((a, b) => geo[a]!.top.compareTo(geo[b]!.top));
+    final rows = <List<OcrBlock>>[];
+    for (final line in byTop) {
+      final g = geo[line]!;
+      if (rows.isNotEmpty &&
+          (g.top - geo[rows.last.first]!.top).abs() <=
+              medianHeight * _tableRowToleranceMultiplier) {
+        rows.last.add(line);
+      } else {
+        rows.add([line]);
+      }
+    }
+
+    final gridRows = rows.where((r) => r.length >= 2).toList();
+    if (gridRows.length < 2) return null;
+    final columnCount = gridRows.first.length;
+    if (gridRows.any((r) => r.length != columnCount)) return null;
+    // A 2-column result is indistinguishable from an ordinary 2-column
+    // running-text layout (every left/right paragraph pair looks like a
+    // "2-row, 2-column grid" once lines happen to align) -- confirmed by a
+    // false-positive against the multi-column corpus fixture. Real tables
+    // overwhelmingly have 3+ columns; require that instead of guessing
+    // which 2-column case is which.
+    if (columnCount < 3) return null;
+
+    for (final row in gridRows) {
+      row.sort((a, b) => geo[a]!.left.compareTo(geo[b]!.left));
+    }
+    for (var col = 0; col < columnCount; col++) {
+      final centerXs = gridRows.map((r) => geo[r[col]]!.centerX).toList();
+      final spread =
+          centerXs.reduce((a, b) => a > b ? a : b) -
+          centerXs.reduce((a, b) => a < b ? a : b);
+      if (spread > _tableColumnAlignmentTolerance) return null;
+    }
+
+    return {
+      for (var r = 0; r < gridRows.length; r++)
+        for (var c = 0; c < columnCount; c++) gridRows[r][c]: (r, c),
+    };
   }
 
   /// Orders one contiguous run of non-wide lines: if it splits cleanly into
@@ -157,6 +249,12 @@ class AnalyzeOcrLayoutUseCase {
     final isBottomMargin = g.centerY > 0.88;
     if ((isTopMargin || isBottomMargin) && _pageNumberPattern.hasMatch(text)) {
       return BlockType.pageNumber;
+    }
+    // A numbered/symbol-marked line in the bottom margin is a footnote, not
+    // a plain footer -- footers carry no reference marker (page branding,
+    // running header repeat, etc).
+    if (isBottomMargin && _footnotePattern.hasMatch(text)) {
+      return BlockType.footnote;
     }
     if (g.centerY < 0.08 && text.length <= _headingMaxChars) {
       return BlockType.header;
@@ -210,8 +308,9 @@ class AnalyzeOcrLayoutUseCase {
     OcrBlock block,
     String pageId,
     int readingOrder,
-    BlockType type,
-  ) => OcrBlock(
+    BlockType type, [
+    (int, int)? tableCell,
+  ]) => OcrBlock(
     id: _uuid.v4(),
     pageId: pageId,
     boundingPolygon: block.boundingPolygon,
@@ -222,6 +321,8 @@ class AnalyzeOcrLayoutUseCase {
     readingOrder: readingOrder,
     words: block.words,
     headingLevel: type == BlockType.heading ? 1 : null,
+    tableRow: tableCell?.$1,
+    tableColumn: tableCell?.$2,
   );
 
   double _median(List<double> sorted) {

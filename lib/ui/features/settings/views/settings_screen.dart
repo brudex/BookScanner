@@ -17,6 +17,15 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late final SettingsViewModel _viewModel;
 
+  static const _ocrLanguageCodes = [
+    'en',
+    'es',
+    'fr',
+    'de',
+    'pt',
+    'it',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -24,6 +33,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget.viewModel ??
         SettingsViewModel(settingsRepository: locator<SettingsRepository>());
     _viewModel.initialize();
+  }
+
+  String _ocrLanguageLabel(String code) {
+    final l10n = AppLocalizations.of(context);
+    return switch (code) {
+      'en' => l10n.ocrLanguageEnglish,
+      'es' => l10n.ocrLanguageSpanish,
+      'fr' => l10n.ocrLanguageFrench,
+      'de' => l10n.ocrLanguageGerman,
+      'pt' => l10n.ocrLanguagePortuguese,
+      'it' => l10n.ocrLanguageItalian,
+      _ => code,
+    };
+  }
+
+  Future<void> _openOcrLanguagesSheet(AppLocalizations l10n) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => ListenableBuilder(
+        listenable: _viewModel,
+        builder: (context, _) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  l10n.settingsOcrLanguages,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              for (final code in _ocrLanguageCodes)
+                CheckboxListTile(
+                  key: ValueKey('ocrLanguage-$code'),
+                  title: Text(_ocrLanguageLabel(code)),
+                  value: _viewModel.settings.ocrLanguages.contains(code),
+                  onChanged: (_) => _viewModel.toggleOcrLanguage(code),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -53,6 +105,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: _viewModel.setStripLocationMetadata,
             ),
             ListTile(
+              key: const ValueKey('settingsOcrLanguagesTile'),
+              title: Text(l10n.settingsOcrLanguages),
+              subtitle: Text(
+                _viewModel.settings.ocrLanguages
+                    .map(_ocrLanguageLabel)
+                    .join(', '),
+              ),
+              onTap: () => _openOcrLanguagesSheet(l10n),
+            ),
+            ListTile(
               title: Text(l10n.settingsCloudProcessing),
               subtitle: Text(
                 _viewModel.settings.cloudProcessingConsentGiven
@@ -65,6 +127,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text('Allow anonymized content for model training'),
               value: _viewModel.settings.modelTrainingOptIn,
               onChanged: _viewModel.setModelTrainingOptIn,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+              child: Text(
+                l10n.settingsCaptureSection,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            ListTile(
+              key: const ValueKey('settingsCountdownTile'),
+              title: Text(l10n.settingsCountdown),
+              trailing: DropdownButton<int>(
+                key: const ValueKey('settingsCountdownDropdown'),
+                value: _viewModel.settings.captureSettings.countdownSeconds,
+                items: [0, 3, 5, 10]
+                    .map(
+                      (seconds) => DropdownMenuItem(
+                        value: seconds,
+                        child: Text(
+                          seconds == 0
+                              ? l10n.settingsCountdownOff
+                              : '${seconds}s',
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) _viewModel.setCountdownSeconds(value);
+                },
+              ),
+            ),
+            SwitchListTile(
+              key: const ValueKey('settingsContinuousCaptureSwitch'),
+              title: Text(l10n.settingsContinuousCapture),
+              value: _viewModel.settings.captureSettings.continuousCapture,
+              onChanged: _viewModel.setContinuousCapture,
+            ),
+            SwitchListTile(
+              key: const ValueKey('settingsHapticConfirmationSwitch'),
+              title: Text(l10n.settingsHapticConfirmation),
+              value: _viewModel.settings.captureSettings.hapticConfirmation,
+              onChanged: _viewModel.setHapticConfirmation,
+            ),
+            SwitchListTile(
+              key: const ValueKey('settingsAudioConfirmationSwitch'),
+              title: Text(l10n.settingsAudioConfirmation),
+              value: _viewModel.settings.captureSettings.audioConfirmation,
+              onChanged: _viewModel.setAudioConfirmation,
             ),
           ],
         ),

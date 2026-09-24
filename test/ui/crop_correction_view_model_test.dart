@@ -186,6 +186,64 @@ void main() {
     },
   );
 
+  test(
+    'dragHandle on a top edge moves both top corners together',
+    () async {
+      await viewModel.initialize();
+
+      viewModel.dragHandle(CropHandle.top, const Offset(0, 0.2));
+      expect(viewModel.quad.topLeft, const Point2D(x: 0.0, y: 0.2));
+      expect(viewModel.quad.topRight, const Point2D(x: 1.0, y: 0.2));
+      expect(viewModel.quad.bottomLeft, Quad.fullFrame.bottomLeft);
+      expect(viewModel.quad.bottomRight, Quad.fullFrame.bottomRight);
+      expect(viewModel.pointFor(CropHandle.top).y, closeTo(0.2, 1e-9));
+    },
+  );
+
+  test(
+    'dragHandle on a skewed edge slides corners along adjacent sides',
+    () async {
+      const skewed = Quad(
+        topLeft: Point2D(x: 0.2, y: 0.1),
+        topRight: Point2D(x: 0.8, y: 0.15),
+        bottomRight: Point2D(x: 0.9, y: 0.9),
+        bottomLeft: Point2D(x: 0.1, y: 0.85),
+      );
+      final page = (await pageRepository.getPage('p1'))!;
+      await pageRepository.updatePage(page.copyWith(cropPoints: skewed));
+      await viewModel.initialize();
+
+      viewModel.dragHandle(CropHandle.bottom, const Offset(0, -0.1));
+
+      // Top corners stay put; bottom corners slide on the left/right sides
+      // (x changes — not a naive dual-corner translate).
+      expect(viewModel.quad.topLeft, skewed.topLeft);
+      expect(viewModel.quad.topRight, skewed.topRight);
+      expect(viewModel.quad.bottomLeft.y, lessThan(skewed.bottomLeft.y));
+      expect(viewModel.quad.bottomRight.y, lessThan(skewed.bottomRight.y));
+      expect(viewModel.quad.bottomLeft.x, isNot(closeTo(skewed.bottomLeft.x, 1e-6)));
+    },
+  );
+
+  test('moveQuad translates every corner and clamps to the frame', () async {
+    await viewModel.initialize();
+    viewModel.dragCorner(CropHandle.topLeft, const Offset(0.2, 0.2));
+    viewModel.dragCorner(CropHandle.topRight, const Offset(-0.2, 0.2));
+    viewModel.dragCorner(CropHandle.bottomRight, const Offset(-0.2, -0.2));
+    viewModel.dragCorner(CropHandle.bottomLeft, const Offset(0.2, -0.2));
+
+    viewModel.moveQuad(const Offset(0.05, 0.05));
+    expect(viewModel.quad.topLeft.x, closeTo(0.25, 1e-9));
+    expect(viewModel.quad.topLeft.y, closeTo(0.25, 1e-9));
+    expect(viewModel.quad.topRight.x, closeTo(0.85, 1e-9));
+    expect(viewModel.quad.topRight.y, closeTo(0.25, 1e-9));
+
+    // Cannot push past the image edge.
+    viewModel.moveQuad(const Offset(-5, -5));
+    expect(viewModel.quad.topLeft.x, 0.0);
+    expect(viewModel.quad.topLeft.y, 0.0);
+  });
+
   test('resetToFullFrame restores Quad.fullFrame', () async {
     await viewModel.initialize();
     viewModel.dragCorner(CropCorner.topLeft, const Offset(0.3, 0.3));

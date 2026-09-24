@@ -11,6 +11,9 @@ enum ProcessingState {
 
 enum PageOrderDirection { leftToRight, rightToLeft }
 
+/// How a book project is photographed (SPEC 5.2 step 2).
+enum BookScanMode { singlePage, twoPageSpread }
+
 /// Book/document metadata (SPEC 6.3, 10).
 class ProjectMetadata {
   const ProjectMetadata({
@@ -22,6 +25,7 @@ class ProjectMetadata {
     this.notes,
     this.startingPageNumber = 1,
     this.pageOrderDirection = PageOrderDirection.leftToRight,
+    this.bookScanMode = BookScanMode.twoPageSpread,
   });
 
   final String? author;
@@ -32,6 +36,7 @@ class ProjectMetadata {
   final String? notes;
   final int startingPageNumber;
   final PageOrderDirection pageOrderDirection;
+  final BookScanMode bookScanMode;
 
   ProjectMetadata copyWith({
     String? author,
@@ -42,6 +47,7 @@ class ProjectMetadata {
     String? notes,
     int? startingPageNumber,
     PageOrderDirection? pageOrderDirection,
+    BookScanMode? bookScanMode,
   }) => ProjectMetadata(
     author: author ?? this.author,
     language: language ?? this.language,
@@ -51,6 +57,7 @@ class ProjectMetadata {
     notes: notes ?? this.notes,
     startingPageNumber: startingPageNumber ?? this.startingPageNumber,
     pageOrderDirection: pageOrderDirection ?? this.pageOrderDirection,
+    bookScanMode: bookScanMode ?? this.bookScanMode,
   );
 
   Map<String, Object?> toJson() => {
@@ -62,6 +69,7 @@ class ProjectMetadata {
     'notes': notes,
     'startingPageNumber': startingPageNumber,
     'pageOrderDirection': pageOrderDirection.name,
+    'bookScanMode': bookScanMode.name,
   };
 
   factory ProjectMetadata.fromJson(Map<String, Object?> json) =>
@@ -75,6 +83,9 @@ class ProjectMetadata {
         startingPageNumber: json['startingPageNumber'] as int? ?? 1,
         pageOrderDirection: PageOrderDirection.values.byName(
           json['pageOrderDirection'] as String? ?? 'leftToRight',
+        ),
+        bookScanMode: BookScanMode.values.byName(
+          json['bookScanMode'] as String? ?? 'twoPageSpread',
         ),
       );
 }

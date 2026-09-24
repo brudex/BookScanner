@@ -47,10 +47,14 @@ class DocxWriter {
       }
     }
 
-    final bodyXml = _buildBody(input, options, mediaEntries);
+    final footnotes = <String>[];
+    final bodyXml = _buildBody(input, options, mediaEntries, footnotes);
 
     archive.addFile(
-      _textEntry('[Content_Types].xml', _contentTypesXml(mediaEntries)),
+      _textEntry(
+        '[Content_Types].xml',
+        _contentTypesXml(mediaEntries, footnotes),
+      ),
     );
     archive.addFile(_textEntry('_rels/.rels', _rootRelsXml()));
     archive.addFile(_textEntry('docProps/core.xml', _coreXml(input)));
@@ -59,9 +63,12 @@ class DocxWriter {
     archive.addFile(
       _textEntry(
         'word/_rels/document.xml.rels',
-        _documentRelsXml(mediaEntries),
+        _documentRelsXml(mediaEntries, footnotes),
       ),
     );
+    if (footnotes.isNotEmpty) {
+      archive.addFile(_textEntry('word/footnotes.xml', _footnotesXml(footnotes)));
+    }
     for (final m in mediaEntries) {
       archive.addFile(
         ArchiveFile('word/media/${m.fileName}', m.bytes.length, m.bytes),
@@ -84,6 +91,7 @@ class DocxWriter {
     ExportDocumentInput input,
     DocxExportOptions options,
     List<_MediaEntry> mediaEntries,
+    List<String> footnotes,
   ) {
     final buffer = StringBuffer();
     for (var i = 0; i < input.pages.length; i++) {
@@ -101,10 +109,61 @@ class DocxWriter {
 
       final blocks = [...page.ocrBlocks]
         ..sort((a, b) => a.readingOrder.compareTo(b.readingOrder));
-      for (final block in blocks) {
+      var k = 0;
+      while (k < blocks.length) {
+        final block = blocks[k];
+        if (block.blockType == BlockType.tableCell) {
+          final group = <OcrBlock>[block];
+          var j = k + 1;
+          while (j < blocks.length &&
+              blocks[j].blockType == BlockType.tableCell) {
+            group.add(blocks[j]);
+            j++;
+          }
+          buffer.write(_tableXml(group));
+          k = j;
+          continue;
+        }
+        if (block.blockType == BlockType.footnote ||
+            block.blockType == BlockType.endnote) {
+          footnotes.add(_escape(block.text));
+          final footnoteId = footnotes.length; // 1-based, matches ordering
+          buffer.write(
+            '<w:p><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr>'
+            '<w:footnoteReference w:id="$footnoteId"/></w:r></w:p>',
+          );
+          k++;
+          continue;
+        }
         buffer.write(_blockToXml(block));
+        k++;
       }
     }
+    return buffer.toString();
+  }
+
+  /// Renders a run of consecutive `tableCell` blocks (grouped by
+  /// `tableRow`/`tableColumn`) as a real `<w:tbl>`.
+  String _tableXml(List<OcrBlock> cells) {
+    final byRow = <int, List<OcrBlock>>{};
+    for (final cell in cells) {
+      byRow.putIfAbsent(cell.tableRow ?? 0, () => []).add(cell);
+    }
+    final rowKeys = byRow.keys.toList()..sort();
+    for (final row in byRow.values) {
+      row.sort((a, b) => (a.tableColumn ?? 0).compareTo(b.tableColumn ?? 0));
+    }
+
+    String cellXml(OcrBlock cell) =>
+        '<w:tc><w:p><w:r><w:t xml:space="preserve">${_escape(cell.text)}</w:t></w:r></w:p></w:tc>';
+    String rowXml(List<OcrBlock> row) =>
+        '<w:tr>${row.map(cellXml).join()}</w:tr>';
+
+    final buffer = StringBuffer('<w:tbl><w:tblPr/>');
+    for (final key in rowKeys) {
+      buffer.write(rowXml(byRow[key]!));
+    }
+    buffer.write('</w:tbl>');
     return buffer.toString();
   }
 
@@ -167,6 +226,7 @@ $body
 <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
 ${List.generate(6, (i) => '<w:style w:type="paragraph" w:styleId="Heading${i + 1}"><w:name w:val="heading ${i + 1}"/><w:basedOn w:val="Normal"/><w:pPr><w:outlineLvl w:val="$i"/></w:pPr><w:rPr><w:b/><w:sz w:val="${32 - i * 2}"/></w:rPr></w:style>').join()}
 <w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/></w:style>
+<w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>
 </w:styles>''';
 
   String _coreXml(ExportDocumentInput input) =>
@@ -179,7 +239,10 @@ ${input.author != null ? '<dc:creator>${_escape(input.author!)}</dc:creator>' : 
 <dcterms:created xsi:type="dcterms:W3CDTF">${DateTime.now().toUtc().toIso8601String()}</dcterms:created>
 </cp:coreProperties>''';
 
-  String _contentTypesXml(List<_MediaEntry> mediaEntries) =>
+  String _contentTypesXml(
+    List<_MediaEntry> mediaEntries,
+    List<String> footnotes,
+  ) =>
       '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -188,6 +251,7 @@ ${input.author != null ? '<dc:creator>${_escape(input.author!)}</dc:creator>' : 
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+${footnotes.isEmpty ? '' : '<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>'}
 </Types>''';
 
   String _rootRelsXml() =>
@@ -197,12 +261,28 @@ ${input.author != null ? '<dc:creator>${_escape(input.author!)}</dc:creator>' : 
 <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
 </Relationships>''';
 
-  String _documentRelsXml(List<_MediaEntry> mediaEntries) =>
+  String _documentRelsXml(
+    List<_MediaEntry> mediaEntries,
+    List<String> footnotes,
+  ) =>
       '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+${footnotes.isEmpty ? '' : '<Relationship Id="rIdFootnotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>'}
 ${mediaEntries.map((m) => '<Relationship Id="rIdImage${m.index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.fileName}"/>').join()}
 </Relationships>''';
+
+  /// Minimal but complete `word/footnotes.xml` part: the two standard
+  /// separator entries every real Word document includes, plus one
+  /// `<w:footnote>` per entry in [footnotes], ids matching the
+  /// `w:footnoteReference` ids written in the body by [_buildBody].
+  String _footnotesXml(List<String> footnotes) =>
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>
+<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>
+${List.generate(footnotes.length, (i) => '<w:footnote w:id="${i + 1}"><w:p><w:r><w:t xml:space="preserve">${footnotes[i]}</w:t></w:r></w:p></w:footnote>').join()}
+</w:footnotes>''';
 }
 
 class _MediaEntry {

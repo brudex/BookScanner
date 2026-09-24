@@ -28,6 +28,23 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Phone ABIs only. A fat APK that also shipped x86_64 was ~335MB
+        // (emulator OpenCV + Flutter natives ~233MB). Default to arm64-only
+        // (~modern phones). Add "armeabi-v7a" here only if you must support
+        // very old 32-bit devices. Prefer `flutter build appbundle` for Play
+        // Store (Google serves one ABI per device).
+        ndk {
+            abiFilters.clear()
+            abiFilters.add("arm64-v8a")
+        }
+    }
+
+    // Maven AARs (OpenCV, ML Kit) still merge x86/x86_64 .so files even with
+    // abiFilters; strip them from the packaged APK.
+    packaging {
+        jniLibs {
+            excludes += listOf("**/x86/**", "**/x86_64/**")
+        }
     }
 
     buildTypes {

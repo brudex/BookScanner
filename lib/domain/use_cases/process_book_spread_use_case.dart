@@ -102,6 +102,27 @@ class ProcessBookSpreadUseCase {
     return finalPages;
   }
 
+  /// Single-page book capture (SPEC 5.2 scan mode): one photographed page,
+  /// still run through detect/enhance/dewarp so curved pages flatten. Does
+  /// not split and does not set [ScanPage.spreadSiblingPageId].
+  Future<List<ScanPage>> processSinglePage({
+    required StillCapture capture,
+    required String projectId,
+    required int sequence,
+  }) async {
+    final pageId = _uuid.v4();
+    final page = await _buildPage(
+      pageId: pageId,
+      siblingId: null,
+      rawImagePath: capture.originalImagePath,
+      projectId: projectId,
+      capturedAtMs: capture.capturedAtMs,
+    );
+    final withSeq = page.copyWith(sequence: sequence);
+    await _pageRepository.addPage(withSeq);
+    return [withSeq];
+  }
+
   /// Re-runs the split at an explicit gutter position (0..1, normalized to
   /// the original spread image) for manual correction, then re-detects/
   /// re-enhances/re-dewarps both halves in place, preserving each page's id
@@ -145,7 +166,7 @@ class ProcessBookSpreadUseCase {
 
   Future<ScanPage> _buildPage({
     required String pageId,
-    required String siblingId,
+    required String? siblingId,
     required String rawImagePath,
     required String projectId,
     required int? capturedAtMs,
@@ -158,18 +179,21 @@ class ProcessBookSpreadUseCase {
     }
 
     final processedPath = _paths.processedPathFor(pageId, ext: 'jpg');
+    // Never auto-detect crop before the crop UI for books. Spread halves and
+    // single book pages both need the full captured frame shown first —
+    // native OpenCV Canny often latches onto a text column and persists a
+    // skinny vertical quad (document mode skips this via `nativeReady`).
     final enhancement = await _enhancementProvider.enhance(
       EnhancementRequest(
         sourceImagePath: originalPath,
         outputImagePath: processedPath,
         cropPoints: Quad.fullFrame,
         rotationDegrees: 0,
-        filter: PageFilter.original,
-        detectCrop: true,
+        filter: kDefaultCaptureFilter,
+        detectCrop: false,
         splitOpenBook: false,
       ),
     );
-    final quad = enhancement.cropPoints;
 
     final dewarp = await _dewarpProvider.dewarp(
       enhancement.processedImagePath,
@@ -188,7 +212,8 @@ class ProcessBookSpreadUseCase {
       originalImagePath: originalPath,
       processedImagePath: dewarp.flattenedImagePath,
       thumbnailPath: enhancement.thumbnailPath,
-      cropPoints: quad,
+      cropPoints: Quad.fullFrame,
+      filter: kDefaultCaptureFilter,
       qualityScore: enhancement.qualityScore,
       warnings: warnings,
       spreadSiblingPageId: siblingId,
@@ -200,11 +225,12 @@ class ProcessBookSpreadUseCase {
           : PageStatus.ready,
       capturedAtMs: capturedAtMs,
       stages: {
-        PipelineStage.split: StageRecord(
-          version: 1,
-          providerInfo: _dewarpProvider.info,
-          completedAtMs: now,
-        ),
+        if (siblingId != null)
+          PipelineStage.split: StageRecord(
+            version: 1,
+            providerInfo: _dewarpProvider.info,
+            completedAtMs: now,
+          ),
         PipelineStage.detection: StageRecord(
           version: 1,
           providerInfo: _detectionProvider.info,

@@ -13,7 +13,7 @@ class DatabaseService {
   final Database _db;
   Database get db => _db;
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 3;
 
   static Future<DatabaseService> open({String? overridePath}) async {
     final path =
@@ -60,6 +60,7 @@ class DatabaseService {
       notes TEXT,
       starting_page_number INTEGER NOT NULL DEFAULT 1,
       page_order_direction TEXT NOT NULL DEFAULT 'leftToRight',
+      book_scan_mode TEXT NOT NULL DEFAULT 'twoPageSpread',
       page_order TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -81,10 +82,12 @@ class DatabaseService {
       thumbnail_path TEXT,
       crop_points TEXT,
       rotation_degrees INTEGER NOT NULL DEFAULT 0,
+      fine_rotation_degrees REAL NOT NULL DEFAULT 0,
       filter TEXT NOT NULL DEFAULT 'original',
       brightness REAL NOT NULL DEFAULT 0,
       contrast REAL NOT NULL DEFAULT 0,
       sharpness REAL NOT NULL DEFAULT 0,
+      threshold REAL NOT NULL DEFAULT 0.5,
       quality_score REAL,
       warnings TEXT NOT NULL DEFAULT '[]',
       duplicate_of_page_id TEXT,
@@ -156,5 +159,13 @@ class DatabaseService {
 
   /// Keyed by target schema version. Add an entry here for every future
   /// migration instead of mutating [_createStatements].
-  static const Map<int, List<String>> _migrations = {};
+  static const Map<int, List<String>> _migrations = {
+    2: [
+      "ALTER TABLE projects ADD COLUMN book_scan_mode TEXT NOT NULL DEFAULT 'twoPageSpread'",
+    ],
+    3: [
+      'ALTER TABLE pages ADD COLUMN fine_rotation_degrees REAL NOT NULL DEFAULT 0',
+      'ALTER TABLE pages ADD COLUMN threshold REAL NOT NULL DEFAULT 0.5',
+    ],
+  };
 }
