@@ -1,4 +1,4 @@
-enum ExportFormat { imagePdf, searchablePdf, markdown, docx }
+enum ExportFormat { imagePdf, searchablePdf, markdown, docx, epub }
 
 enum ExportJobStatus { queued, running, paused, completed, failed, cancelled }
 
@@ -71,6 +71,16 @@ class DocxExportOptions {
   const DocxExportOptions({this.pageMode = DocxPageMode.reflowable});
 
   final DocxPageMode pageMode;
+}
+
+/// Options for an EPUB package built from scanned pages and any OCR already
+/// stored for those pages.
+class EpubExportOptions {
+  const EpubExportOptions({this.includePageImages = true});
+
+  /// When true, each chapter also embeds the scanned page image so the book
+  /// stays readable before (or without) OCR text.
+  final bool includePageImages;
 }
 
 /// A background export job (SPEC 10). Jobs are cancellable and resumable and

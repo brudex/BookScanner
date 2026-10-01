@@ -52,6 +52,8 @@ class CaptureViewModel extends ChangeNotifier {
   /// on screen after enhance finishes, so the user sees the final look
   /// before the live camera returns for the next shot. Tests pass
   /// [Duration.zero] to skip the pause.
+  /// Kept so existing tests can pass a hold. Shots no longer wait on it.
+  // ignore: unused_field
   final Duration resultPreviewHold;
 
   /// Called when a still was saved but no confident page quad was found.
@@ -127,9 +129,6 @@ class CaptureViewModel extends ChangeNotifier {
 
   ProjectType? _projectType;
   ProjectType? get projectType => _projectType;
-
-  PageOrderDirection _pageOrderDirection = PageOrderDirection.leftToRight;
-  BookScanMode _bookScanMode = BookScanMode.twoPageSpread;
 
   int? get previewTextureId => _captureProvider.previewTextureId;
 
@@ -228,10 +227,6 @@ class CaptureViewModel extends ChangeNotifier {
   Future<void> initialize() async {
     final project = await _projectRepository.getProject(projectId);
     _projectType = project?.type;
-    _pageOrderDirection =
-        project?.metadata.pageOrderDirection ?? PageOrderDirection.leftToRight;
-    _bookScanMode =
-        project?.metadata.bookScanMode ?? BookScanMode.twoPageSpread;
     final pages = await _pageRepository.getPages(projectId);
     _pageCount = pages.length;
     _captureSettings = (await _settingsRepository.getSettings()).captureSettings;
@@ -363,9 +358,12 @@ class CaptureViewModel extends ChangeNotifier {
 
   void toggleAutoCapture() => setAutoCaptureEnabled(!_autoCaptureEnabled);
 
-  /// Returns the page(s) produced by this capture: one for a normal
-  /// document page, or two (already split, ordered per the project's
-  /// [PageOrderDirection]) for a book spread (SPEC 5.2).
+  /// Returns the page produced by this capture.
+  ///
+  /// A document photo is cropped and filtered. A book photo is one full
+  /// page, stored as shot, so the next page can be taken immediately.
+  /// Apps such as Adobe Scan and vFlat work this way: facing-page splits
+  /// are a separate step, never a silent cut down the middle.
   ///
   /// Live quality warnings stay on the banner and are stored on the page;
   /// they do not swallow a shutter tap. SPEC 9.2 requires manual capture on
@@ -414,21 +412,9 @@ class CaptureViewModel extends ChangeNotifier {
       }
       _pageCount += pages.length;
       final first = pages.first;
-      _lastPagePreviewPath =
-          first.processedImagePath ??
-          first.thumbnailPath ??
-          first.originalImagePath;
-      // Do not push crop mid-session — that stole the camera after every
-      // uncertain auto-capture. Corner fixes belong in post-capture edit.
-      final resultPath = first.processedImagePath ?? first.thumbnailPath;
-      _frozenPreviewPath = null;
-      if (replaceId == null &&
-          resultPath != null &&
-          resultPreviewHold > Duration.zero) {
-        _resultPreviewPath = resultPath;
-        _notify();
-        await Future<void>.delayed(resultPreviewHold);
-      }
+      _lastPagePreviewPath = first.originalImagePath;
+      // Processing (crop, document filter) waits until the user asks for it
+      // on Review. The camera returns as soon as the photo is saved.
       return pages;
     } on ProviderException catch (e) {
       if (e.category == ProviderErrorCategory.cancelled) return const [];
@@ -447,7 +433,12 @@ class CaptureViewModel extends ChangeNotifier {
   }
 
   Future<List<StillCapture>> _captureStills() async {
-    return [await _captureProvider.captureStill()];
+    final provider = _captureProvider;
+    if (replacePageId == null && provider is BatchDocumentCapture) {
+      final batch = provider as BatchDocumentCapture;
+      return batch.scanDocuments(maxPages: 20);
+    }
+    return [await provider.captureStill()];
   }
 
   Future<List<ScanPage>> importStill(String imagePath) {
@@ -485,14 +476,6 @@ class CaptureViewModel extends ChangeNotifier {
     required int sequence,
   }) {
     if (_projectType == ProjectType.book) {
-      if (_bookScanMode == BookScanMode.twoPageSpread) {
-        return _processBookSpreadUseCase.processCapture(
-          capture: still,
-          projectId: projectId,
-          sequence: sequence,
-          pageOrderDirection: _pageOrderDirection,
-        );
-      }
       return _processBookSpreadUseCase.processSinglePage(
         capture: still,
         projectId: projectId,
@@ -500,7 +483,7 @@ class CaptureViewModel extends ChangeNotifier {
       );
     }
     return _capturePageUseCase
-        .processCapture(
+        .saveShot(
           capture: still,
           projectId: projectId,
           sequence: sequence,

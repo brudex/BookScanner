@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:archive/archive.dart';
 
 import 'package:bookscanner/data/services/export/dart_document_export_provider.dart';
 import 'package:bookscanner/domain/models/export_job.dart';
@@ -140,6 +143,28 @@ void main() {
         const DocxExportOptions(),
       );
       expect(await File(docxOutput.outputPath).exists(), isTrue);
+
+      final epubInput = ExportDocumentInput(
+        projectId: 'proj1',
+        title: 'Scanned Book',
+        outputPathHint: p.join(tmpDir.path, 'book.epub'),
+        pages: [
+          ExportPageInput(pageId: 'p1', imagePath: img1, rotationDegrees: 0),
+        ],
+      );
+      final epubOutput = await provider.exportEpub(
+        epubInput,
+        const EpubExportOptions(),
+      );
+      final epubBytes = await File(epubOutput.outputPath).readAsBytes();
+      final epub = ZipDecoder().decodeBytes(epubBytes);
+      expect(epub.files.first.name, 'mimetype');
+      expect(
+        utf8.decode(epub.files.first.content as List<int>),
+        'application/epub+zip',
+      );
+      expect(epub.findFile('OEBPS/content.opf'), isNotNull);
+      expect(epub.findFile('OEBPS/page1.xhtml'), isNotNull);
     },
   );
 }

@@ -80,7 +80,7 @@ class _FolderContentsScreenState extends State<FolderContentsScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Theme(
-      data: AppTheme.light(),
+      data: AppTheme.homeShell(),
       child: Scaffold(
         appBar: AppBar(
           title: StreamBuilder<List<Folder>>(

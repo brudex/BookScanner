@@ -178,17 +178,41 @@ abstract class AppLocalizations {
   /// **'Pages'**
   String get homeStatPages;
 
-  /// Home quick-start tile that opens document capture
+  /// Home hero card that opens document capture
   ///
   /// In en, this message translates to:
-  /// **'Document scan'**
+  /// **'Document'**
   String get homeActionDocumentScan;
 
-  /// Home quick-start tile that opens book capture
+  /// Subtitle under the Document hero card
   ///
   /// In en, this message translates to:
-  /// **'Book scan'**
+  /// **'Single or multiple pages'**
+  String get homeActionDocumentScanSubtitle;
+
+  /// Home hero card that opens book capture
+  ///
+  /// In en, this message translates to:
+  /// **'Book'**
   String get homeActionBookScan;
+
+  /// Subtitle under the Book hero card
+  ///
+  /// In en, this message translates to:
+  /// **'Scan pages as book'**
+  String get homeActionBookScanSubtitle;
+
+  /// Home hero card that opens ID-card capture
+  ///
+  /// In en, this message translates to:
+  /// **'ID Card'**
+  String get homeActionIdScan;
+
+  /// Subtitle under the ID Card hero card
+  ///
+  /// In en, this message translates to:
+  /// **'Passport, ID, license'**
+  String get homeActionIdScanSubtitle;
 
   /// Home quick-start tile that imports from the gallery
   ///
@@ -694,6 +718,36 @@ abstract class AppLocalizations {
   /// **'Import'**
   String get captureImport;
 
+  /// Title shown before the native scanner opens
+  ///
+  /// In en, this message translates to:
+  /// **'Ready to scan'**
+  String get captureReadyTitle;
+
+  /// Title shown before the native scanner opens for a book
+  ///
+  /// In en, this message translates to:
+  /// **'Ready to scan your book'**
+  String get captureReadyBookTitle;
+
+  /// Explains that the start button opens the scanner
+  ///
+  /// In en, this message translates to:
+  /// **'Start scanning opens the scanner. Take your pages there. When you come back, you\'ll crop each page, then set its filters.'**
+  String get captureReadyBody;
+
+  /// Explains book scanning before the scanner opens
+  ///
+  /// In en, this message translates to:
+  /// **'Start scanning opens the scanner. Photograph one page at a time. When you come back, you\'ll crop each page, then set its filters.'**
+  String get captureReadyBookBody;
+
+  /// Button that opens the native document scanner
+  ///
+  /// In en, this message translates to:
+  /// **'Start scanning'**
+  String get captureStartScanning;
+
   /// Toggle the camera composition grid
   ///
   /// In en, this message translates to:
@@ -766,23 +820,161 @@ abstract class AppLocalizations {
   /// **'Review pages'**
   String get reviewTitle;
 
-  /// Add-pages sheet option: open the camera
+  /// Review bottom action: open the camera
   ///
   /// In en, this message translates to:
-  /// **'Camera'**
+  /// **'Add from Camera'**
   String get reviewAddCamera;
 
-  /// Add-pages sheet option: pick photos from the gallery
+  /// Review bottom action: pick photos from the gallery
   ///
   /// In en, this message translates to:
-  /// **'Gallery'**
+  /// **'Add from Gallery'**
   String get reviewAddGallery;
 
-  /// Add-pages sheet option: import a PDF from Files
+  /// Review bottom action: import a PDF from Files
   ///
   /// In en, this message translates to:
-  /// **'Import from Files'**
+  /// **'Import Files'**
   String get reviewAddFromFiles;
+
+  /// Full-width export button on Review pages
+  ///
+  /// In en, this message translates to:
+  /// **'Export / Convert'**
+  String get reviewExportConvert;
+
+  /// Subtitle of the export format sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a format to export your document'**
+  String get reviewExportSheetSubtitle;
+
+  /// Export sheet option for PDF
+  ///
+  /// In en, this message translates to:
+  /// **'Export as PDF'**
+  String get reviewExportPdf;
+
+  /// Description under Export as PDF
+  ///
+  /// In en, this message translates to:
+  /// **'Create a high-quality, searchable PDF with OCR text.'**
+  String get reviewExportPdfHint;
+
+  /// Export sheet option for Markdown
+  ///
+  /// In en, this message translates to:
+  /// **'Export as Markdown'**
+  String get reviewExportMarkdown;
+
+  /// Description under Export as Markdown
+  ///
+  /// In en, this message translates to:
+  /// **'Recognize text (OCR) and convert to clean Markdown with headings, tables and structure.'**
+  String get reviewExportMarkdownHint;
+
+  /// Export sheet option for EPUB
+  ///
+  /// In en, this message translates to:
+  /// **'Export as EPUB'**
+  String get reviewExportEpub;
+
+  /// Description under Export as EPUB
+  ///
+  /// In en, this message translates to:
+  /// **'Create a readable EPUB for eBook readers. Best for scanned books.'**
+  String get reviewExportEpubHint;
+
+  /// Section label for PDF-only export settings
+  ///
+  /// In en, this message translates to:
+  /// **'PDF OPTIONS'**
+  String get reviewExportPdfOptions;
+
+  /// Section label for Markdown-only export settings
+  ///
+  /// In en, this message translates to:
+  /// **'MARKDOWN OPTIONS'**
+  String get reviewExportMarkdownOptions;
+
+  /// Section label for EPUB-only export settings
+  ///
+  /// In en, this message translates to:
+  /// **'EPUB OPTIONS'**
+  String get reviewExportEpubOptions;
+
+  /// PDF setting: embed recognized text
+  ///
+  /// In en, this message translates to:
+  /// **'OCR (Make text searchable)'**
+  String get reviewExportOcr;
+
+  /// PDF image quality picker label
+  ///
+  /// In en, this message translates to:
+  /// **'Image quality'**
+  String get reviewExportImageQuality;
+
+  /// Highest PDF image quality
+  ///
+  /// In en, this message translates to:
+  /// **'High (Best)'**
+  String get reviewExportQualityHigh;
+
+  /// Balanced PDF image quality
+  ///
+  /// In en, this message translates to:
+  /// **'Medium'**
+  String get reviewExportQualityMedium;
+
+  /// Smaller PDF image quality
+  ///
+  /// In en, this message translates to:
+  /// **'Low (Smaller)'**
+  String get reviewExportQualityLow;
+
+  /// Confirm button after choosing PDF
+  ///
+  /// In en, this message translates to:
+  /// **'Export to PDF'**
+  String get reviewExportToPdf;
+
+  /// Confirm button after choosing Markdown
+  ///
+  /// In en, this message translates to:
+  /// **'Export to Markdown'**
+  String get reviewExportToMarkdown;
+
+  /// Confirm button after choosing EPUB
+  ///
+  /// In en, this message translates to:
+  /// **'Export to EPUB'**
+  String get reviewExportToEpub;
+
+  /// Markdown setting: comment between pages
+  ///
+  /// In en, this message translates to:
+  /// **'Page markers'**
+  String get reviewIncludePageMarkers;
+
+  /// EPUB setting: embed the scanned page image
+  ///
+  /// In en, this message translates to:
+  /// **'Include page images'**
+  String get reviewIncludePageImages;
+
+  /// Switches to list view so pages can be dragged
+  ///
+  /// In en, this message translates to:
+  /// **'Page order'**
+  String get reviewPageOrder;
+
+  /// Default title of a page row when it has no custom label
+  ///
+  /// In en, this message translates to:
+  /// **'Page {number}'**
+  String reviewPageLabel(int number);
 
   /// Tooltip for the Review Add button
   ///

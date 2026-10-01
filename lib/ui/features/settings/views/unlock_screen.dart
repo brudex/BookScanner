@@ -69,7 +69,7 @@ class _UnlockScreenState extends State<UnlockScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Theme(
-      data: AppTheme.light(),
+      data: AppTheme.homeShell(),
       child: DecoratedBox(
         decoration: const BoxDecoration(gradient: AppTheme.homeGradient),
         child: Scaffold(

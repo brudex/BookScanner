@@ -10,6 +10,7 @@ import '../../../domain/models/export_job.dart';
 import '../../../domain/models/provider_info.dart';
 import '../../../domain/providers/document_export_provider.dart';
 import 'docx_writer.dart';
+import 'epub_writer.dart';
 import 'markdown_writer.dart';
 
 /// Default on-device export adapter (SPEC 6.5, 6.6, 6.7). Pure Dart — no
@@ -295,4 +296,11 @@ class DartDocumentExportProvider implements DocumentExportProvider {
     DocxExportOptions options, {
     ExportProgressCallback? onProgress,
   }) => DocxWriter(info: info).write(input, options, onProgress: onProgress);
+
+  @override
+  Future<ExportOutput> exportEpub(
+    ExportDocumentInput input,
+    EpubExportOptions options, {
+    ExportProgressCallback? onProgress,
+  }) => EpubWriter(info: info).write(input, options, onProgress: onProgress);
 }

@@ -39,6 +39,7 @@ class NativeOpenCvImageEnhancementProvider implements ImageEnhancementProvider {
 
   @override
   Future<EnhancementResult> enhance(EnhancementRequest request) async {
+    if (request.passthrough) return _fallback.enhance(request);
     try {
       final availability = await _channel.isAvailable();
       if (!availability.available) return _fallback.enhance(request);

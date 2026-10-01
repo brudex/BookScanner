@@ -25,7 +25,7 @@ class ProjectMetadata {
     this.notes,
     this.startingPageNumber = 1,
     this.pageOrderDirection = PageOrderDirection.leftToRight,
-    this.bookScanMode = BookScanMode.twoPageSpread,
+    this.bookScanMode = BookScanMode.singlePage,
   });
 
   final String? author;
@@ -85,7 +85,7 @@ class ProjectMetadata {
           json['pageOrderDirection'] as String? ?? 'leftToRight',
         ),
         bookScanMode: BookScanMode.values.byName(
-          json['bookScanMode'] as String? ?? 'twoPageSpread',
+          json['bookScanMode'] as String? ?? 'singlePage',
         ),
       );
 }

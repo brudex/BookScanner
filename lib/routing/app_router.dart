@@ -7,6 +7,7 @@ import '../ui/core/di/service_locator.dart';
 import '../ui/core/widgets/not_found_screen.dart';
 import '../ui/features/capture/views/capture_screen.dart';
 import '../ui/features/export/views/export_screen.dart';
+import '../ui/features/page_review/views/export_convert_sheet.dart';
 import '../ui/features/library/views/book_setup_screen.dart';
 import '../ui/features/library/views/favorites_screen.dart';
 import '../ui/features/library/views/folder_contents_screen.dart';
@@ -192,8 +193,12 @@ final GoRouter appRouter = GoRouter(
     ),
     GoRoute(
       path: AppRoutes.export,
-      builder: (context, state) =>
-          ExportScreen(projectId: state.pathParameters['projectId']!),
+      builder: (context, state) => ExportScreen(
+        projectId: state.pathParameters['projectId']!,
+        launch: state.extra is ExportLaunch
+            ? state.extra as ExportLaunch
+            : null,
+      ),
     ),
     GoRoute(
       path: AppRoutes.pageOperations,

@@ -136,6 +136,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           projectId: project.id,
           sequence: sequence,
+          keepOriginal: true,
         );
         sequence++;
       }
@@ -180,6 +181,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           projectId: project.id,
           sequence: sequence,
+          keepOriginal: true,
         );
         sequence++;
       }
@@ -221,61 +223,64 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final l10n = AppLocalizations.of(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
-        systemNavigationBarColor: AppTheme.homeDock,
+        systemNavigationBarColor: AppTheme.homeBackground,
         systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarIconBrightness: Brightness.light,
         systemNavigationBarContrastEnforced: false,
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
       ),
       child: Theme(
-        data: AppTheme.light(),
-        child: DecoratedBox(
-          decoration: const BoxDecoration(gradient: AppTheme.homeGradient),
-          child: Scaffold(
-            backgroundColor: Colors.transparent,
-            extendBody: true,
-            floatingActionButton: _selectedIds.isEmpty
-                ? _ScanFab(
-                    key: const ValueKey('newScanFab'),
-                    tooltip: l10n.homeNavScan,
-                    onPressed: () => context.push(AppRoutes.newScan),
-                  )
-                : null,
-            floatingActionButtonLocation:
-                FloatingActionButtonLocation.centerDocked,
-            body: Stack(
-              children: [
-                ListenableBuilder(
-                  listenable: _viewModel,
-                  builder: (context, _) => _buildBody(context, l10n),
-                ),
-                if (_importing)
-                  const ColoredBox(
-                    color: Color(0x66FFFFFF),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        key: ValueKey('homeImporting'),
+        data: AppTheme.homeShell(),
+        child: Stack(
+          children: [
+            const Positioned.fill(child: _HomeAmbientBackground()),
+            Scaffold(
+              backgroundColor: Colors.transparent,
+              extendBody: true,
+              floatingActionButton: _selectedIds.isEmpty
+                  ? _ScanFab(
+                      key: const ValueKey('newScanFab'),
+                      tooltip: l10n.homeNavScan,
+                      onPressed: () => context.push(AppRoutes.newScan),
+                    )
+                  : null,
+              floatingActionButtonLocation:
+                  FloatingActionButtonLocation.centerDocked,
+              body: Stack(
+                children: [
+                  ListenableBuilder(
+                    listenable: _viewModel,
+                    builder: (context, _) => _buildBody(context, l10n),
+                  ),
+                  if (_importing)
+                    ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      child: const Center(
+                        child: CircularProgressIndicator(
+                          key: ValueKey('homeImporting'),
+                          color: AppTheme.accent,
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
+              bottomNavigationBar: _selectedIds.isEmpty
+                  ? _HomeDock(
+                      l10n: l10n,
+                      onHome: () {},
+                      onScans: () => context.push(AppRoutes.scansSearch),
+                    )
+                  : _SelectionActionBar(
+                      l10n: l10n,
+                      count: _selectedIds.length,
+                      onCancel: () => setState(_selectedIds.clear),
+                      onFavorite: _bulkFavorite,
+                      onRename: _batchRename,
+                      onDelete: _bulkDelete,
+                    ),
             ),
-            bottomNavigationBar: _selectedIds.isEmpty
-                ? _HomeDock(
-                    l10n: l10n,
-                    onHome: () {},
-                    onScans: () => context.push(AppRoutes.scansSearch),
-                  )
-                : _SelectionActionBar(
-                    l10n: l10n,
-                    count: _selectedIds.length,
-                    onCancel: () => setState(_selectedIds.clear),
-                    onFavorite: _bulkFavorite,
-                    onRename: _batchRename,
-                    onDelete: _bulkDelete,
-                  ),
-          ),
+          ],
         ),
       ),
     );
@@ -301,7 +306,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             l10n: l10n,
             onDocumentScan: _startDocumentScan,
             onBookScan: _startBookScan,
-            onImport: _importGallery,
+            onIdScan: _startIdScan,
           ),
         ),
         SliverToBoxAdapter(
@@ -604,23 +609,22 @@ class _RoundHeaderButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: AppTheme.homeCard,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: Ink(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppTheme.homeCard,
-              border: Border.all(color: AppTheme.homeHairline),
-            ),
-            child: SizedBox(
-              width: 40,
-              height: 40,
-              child: Icon(icon, color: AppTheme.homeIcon, size: 16),
-            ),
+      child: SizedBox(
+        width: 42,
+        height: 42,
+        child: Material(
+          color: AppTheme.homeCard,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
+          shape: const CircleBorder(
+            side: BorderSide(color: AppTheme.homeHairline),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onPressed,
+            child: Icon(icon, color: AppTheme.homeIcon, size: 18),
           ),
         ),
       ),
@@ -628,115 +632,208 @@ class _RoundHeaderButton extends StatelessWidget {
   }
 }
 
+class _HomeAmbientBackground extends StatelessWidget {
+  const _HomeAmbientBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(gradient: AppTheme.homeGradient),
+      child: CustomPaint(painter: _HomeGlowPainter()),
+    );
+  }
+}
+
+class _HomeGlowPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final top = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          AppTheme.accent.withValues(alpha: 0.28),
+          AppTheme.accent.withValues(alpha: 0.0),
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(size.width * 0.85, size.height * 0.08),
+        radius: size.width * 0.55,
+      ));
+    canvas.drawRect(Offset.zero & size, top);
+
+    final mid = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFF1DBF5A).withValues(alpha: 0.22),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(size.width * 0.1, size.height * 0.45),
+        radius: size.width * 0.7,
+      ));
+    canvas.drawRect(Offset.zero & size, mid);
+
+    final bottom = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          AppTheme.accent.withValues(alpha: 0.18),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(
+        center: Offset(size.width * 0.6, size.height * 0.92),
+        radius: size.width * 0.65,
+      ));
+    canvas.drawRect(Offset.zero & size, bottom);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _QuickStartRow extends StatelessWidget {
   const _QuickStartRow({
     required this.l10n,
     required this.onDocumentScan,
     required this.onBookScan,
-    required this.onImport,
+    required this.onIdScan,
   });
 
   final AppLocalizations l10n;
   final VoidCallback onDocumentScan;
   final VoidCallback onBookScan;
-  final VoidCallback onImport;
+  final VoidCallback onIdScan;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: _QuickStartCard(
-              key: const ValueKey('homeActionDocumentScan'),
-              icon: LucideIcons.fileText,
-              well: const Color(0xFFFCE4EC),
-              iconColor: const Color(0xFFE85D8C),
-              label: l10n.homeActionDocumentScan,
-              onTap: onDocumentScan,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: SizedBox(
+        height: 168,
+        child: Row(
+          children: [
+            Expanded(
+              child: _HeroScanCard(
+                key: const ValueKey('homeActionDocumentScan'),
+                icon: LucideIcons.files,
+                title: l10n.homeActionDocumentScan,
+                subtitle: l10n.homeActionDocumentScanSubtitle,
+                onTap: onDocumentScan,
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _QuickStartCard(
-              key: const ValueKey('homeActionBookScan'),
-              icon: LucideIcons.bookOpen,
-              well: const Color(0xFFEEF0F3),
-              iconColor: const Color(0xFF5C6370),
-              label: l10n.homeActionBookScan,
-              onTap: onBookScan,
+            const SizedBox(width: 10),
+            Expanded(
+              child: _HeroScanCard(
+                key: const ValueKey('homeActionBookScan'),
+                icon: LucideIcons.bookOpen,
+                title: l10n.homeActionBookScan,
+                subtitle: l10n.homeActionBookScanSubtitle,
+                onTap: onBookScan,
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _QuickStartCard(
-              key: const ValueKey('homeActionImport'),
-              icon: LucideIcons.image,
-              well: const Color(0xFFFFF3D6),
-              iconColor: const Color(0xFFD4A017),
-              label: l10n.homeActionImport,
-              onTap: onImport,
+            const SizedBox(width: 10),
+            Expanded(
+              child: _HeroScanCard(
+                key: const ValueKey('homeActionIdScan'),
+                icon: LucideIcons.creditCard,
+                title: l10n.homeActionIdScan,
+                subtitle: l10n.homeActionIdScanSubtitle,
+                onTap: onIdScan,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _QuickStartCard extends StatelessWidget {
-  const _QuickStartCard({
+class _HeroScanCard extends StatelessWidget {
+  const _HeroScanCard({
     super.key,
     required this.icon,
-    required this.well,
-    required this.iconColor,
-    required this.label,
+    required this.title,
+    required this.subtitle,
     required this.onTap,
   });
 
   final IconData icon;
-  final Color well;
-  final Color iconColor;
-  final String label;
+  final String title;
+  final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppTheme.homeCard,
-      borderRadius: BorderRadius.circular(18),
+      color: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      elevation: 0,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
-          child: Column(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: well,
-                  borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(22),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xE6223B2E), Color(0xCC0E1C16)],
+            ),
+            border: Border.all(color: AppTheme.homeHairline),
+            boxShadow: AppTheme.cardShadow,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: AppTheme.homeText, size: 28),
+                const Spacer(),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    color: AppTheme.homeText,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                child: Icon(icon, size: 18, color: iconColor),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                label,
-                maxLines: 2,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontFamily: AppTheme.fontFamily,
-                  color: AppTheme.homeText,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  height: 1.2,
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    color: AppTheme.homeMuted,
+                    fontSize: 11,
+                    height: 1.25,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: Material(
+                    color: AppTheme.accent,
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 0,
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: Icon(
+                        LucideIcons.chevronRight,
+                        size: 16,
+                        color: Color(0xFF04140C),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -876,19 +973,19 @@ class _QuickToolTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppTheme.homeCard,
+    return Material(
+      color: AppTheme.homeCard,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppTheme.homeHairline),
+        side: const BorderSide(color: AppTheme.homeHairline),
       ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(22),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(22),
-          child: SizedBox(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
             width: 88,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
@@ -900,7 +997,7 @@ class _QuickToolTile extends StatelessWidget {
                     width: 28,
                     height: 28,
                     colorFilter: const ColorFilter.mode(
-                      AppTheme.accentDeep,
+                      AppTheme.accent,
                       BlendMode.srcIn,
                     ),
                   ),
@@ -923,7 +1020,6 @@ class _QuickToolTile extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 }
@@ -1075,8 +1171,11 @@ class _FilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AppTheme.homeText : AppTheme.homeCard,
+      color: selected ? AppTheme.accent : AppTheme.homeCard,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
       borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
@@ -1086,7 +1185,7 @@ class _FilterChip extends StatelessWidget {
             label,
             style: TextStyle(
               fontFamily: AppTheme.fontFamily,
-              color: selected ? Colors.white : AppTheme.homeMuted,
+              color: selected ? const Color(0xFF04140C) : AppTheme.homeMuted,
               fontSize: 11,
               fontWeight: FontWeight.w600,
             ),
@@ -1193,8 +1292,8 @@ class _HomeDock extends StatelessWidget {
     return BottomAppBar(
       height: 64,
       padding: EdgeInsets.zero,
-      elevation: 10,
-      shadowColor: const Color(0x33001820),
+      elevation: 0,
+      shadowColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       color: AppTheme.homeDock,
       shape: const CircularNotchedRectangle(),
@@ -1242,14 +1341,20 @@ class _ScanFab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
-      child: FloatingActionButton(
-        onPressed: onPressed,
-        elevation: 6,
-        highlightElevation: 10,
-        backgroundColor: AppTheme.accent,
-        foregroundColor: Colors.white,
-        shape: const CircleBorder(),
-        child: const Icon(LucideIcons.plus, size: 28),
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: AppTheme.accentGlow,
+        ),
+        child: FloatingActionButton(
+          onPressed: onPressed,
+          elevation: 0,
+          highlightElevation: 0,
+          backgroundColor: AppTheme.accent,
+          foregroundColor: const Color(0xFF04140C),
+          shape: const CircleBorder(),
+          child: const Icon(LucideIcons.plus, size: 28),
+        ),
       ),
     );
   }
@@ -1271,7 +1376,7 @@ class _DockItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppTheme.accentDeep : AppTheme.homeMuted;
+    final color = selected ? AppTheme.accent : AppTheme.homeMuted;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1330,7 +1435,10 @@ class _ProjectGridTile extends StatelessWidget {
       ),
       child: Material(
         color: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,

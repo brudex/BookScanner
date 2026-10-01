@@ -245,42 +245,44 @@ void main() {
     expect(pages[1].sequence, 1);
   });
 
-  test('records split/detection/enhancement/dewarp pipeline stages', () async {
+  test('records only the center split — no detect, filter, or dewarp', () async {
     final pages = await useCase.processCapture(
       capture: buildCapture(),
       projectId: 'proj1',
       sequence: 0,
     );
 
+    expect(dewarpProvider.lastGutterOverride, 0.5);
+    expect(dewarpProvider.dewarpCalls, 0);
     for (final page in pages) {
       expect(page.stages[PipelineStage.split], isNotNull);
-      expect(page.stages[PipelineStage.detection], isNotNull);
-      expect(page.stages[PipelineStage.enhancement], isNotNull);
-      expect(page.stages[PipelineStage.dewarp], isNotNull);
+      expect(page.stages[PipelineStage.detection], isNull);
+      expect(page.stages[PipelineStage.enhancement], isNull);
+      expect(page.stages[PipelineStage.dewarp], isNull);
+      expect(page.cropPoints, Quad.fullFrame);
+      expect(page.filter, PageFilter.original);
+    }
+  });
+
+  test('book capture does not run finger detection or mark a rescan', () async {
+    dewarpProvider.occlusionOnNextDewarp = true;
+    dewarpProvider.highConfidenceTextLossOnNextDewarp = true;
+
+    final pages = await useCase.processCapture(
+      capture: buildCapture(),
+      projectId: 'proj1',
+      sequence: 0,
+    );
+
+    expect(dewarpProvider.dewarpCalls, 0);
+    for (final page in pages) {
+      expect(page.warnings, isEmpty);
+      expect(page.status, PageStatus.ready);
     }
   });
 
   test(
-    'flags fingerCovering warning and needsRescan status on high-confidence text loss',
-    () async {
-      dewarpProvider.occlusionOnNextDewarp = true;
-      dewarpProvider.highConfidenceTextLossOnNextDewarp = true;
-
-      final pages = await useCase.processCapture(
-        capture: buildCapture(),
-        projectId: 'proj1',
-        sequence: 0,
-      );
-
-      for (final page in pages) {
-        expect(page.warnings, contains(QualityWarning.fingerCovering));
-        expect(page.status, PageStatus.needsRescan);
-      }
-    },
-  );
-
-  test(
-    'does not recommend a rescan for a low-confidence/margin-only occlusion',
+    'book capture stays ready even if a later dewarp would have flagged an occlusion',
     () async {
       dewarpProvider.occlusionOnNextDewarp = true;
       dewarpProvider.highConfidenceTextLossOnNextDewarp = false;
@@ -291,8 +293,8 @@ void main() {
         sequence: 0,
       );
 
+      expect(dewarpProvider.dewarpCalls, 0);
       for (final page in pages) {
-        expect(page.warnings, contains(QualityWarning.fingerCovering));
         expect(page.status, PageStatus.ready);
       }
     },
@@ -370,9 +372,10 @@ void main() {
       sequence: 0,
     );
 
-    expect(enhancementProvider.lastRequest, isNotNull);
-    expect(enhancementProvider.lastRequest!.splitOpenBook, isFalse);
-    expect(enhancementProvider.lastRequest!.detectCrop, isFalse);
+    expect(enhancementProvider.lastRequest, isNull);
+    expect(dewarpProvider.dewarpCalls, 0);
+    expect(pageRepository.pages.values.first.cropPoints, Quad.fullFrame);
+    expect(pageRepository.pages.values.first.filter, PageFilter.original);
   });
 
   test('processSinglePage also skips crop detect — full pic before crop UI', () async {
@@ -382,14 +385,14 @@ void main() {
       sequence: 0,
     );
 
-    expect(enhancementProvider.lastRequest, isNotNull);
-    expect(enhancementProvider.lastRequest!.detectCrop, isFalse);
-    expect(enhancementProvider.lastRequest!.splitOpenBook, isFalse);
+    expect(enhancementProvider.lastRequest, isNull);
     expect(pages.single.cropPoints, Quad.fullFrame);
+    expect(pages.single.filter, PageFilter.original);
+    expect(pages.single.processedImagePath, pages.single.originalImagePath);
   });
 
   test(
-    'processSinglePage persists one dewarped page without a spread sibling',
+    'processSinglePage persists the full photo without dewarp or a sibling',
     () async {
       final pages = await useCase.processSinglePage(
         capture: buildCapture(),
@@ -401,9 +404,10 @@ void main() {
       expect(pages.single.sequence, 3);
       expect(pages.single.spreadSiblingPageId, isNull);
       expect(pages.single.stages[PipelineStage.split], isNull);
-      expect(pages.single.stages[PipelineStage.dewarp], isNotNull);
+      expect(pages.single.stages[PipelineStage.dewarp], isNull);
+      expect(pages.single.cropPoints, Quad.fullFrame);
       expect(dewarpProvider.splitCalls, 0);
-      expect(dewarpProvider.dewarpCalls, 1);
+      expect(dewarpProvider.dewarpCalls, 0);
       expect(pageRepository.pages, hasLength(1));
     },
   );

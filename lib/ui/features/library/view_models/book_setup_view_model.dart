@@ -26,7 +26,7 @@ class BookSetupViewModel extends ChangeNotifier {
   String tags = '';
   String notes = '';
   int startingPageNumber = 1;
-  BookScanMode bookScanMode = BookScanMode.twoPageSpread;
+  BookScanMode bookScanMode = BookScanMode.singlePage;
   PageOrderDirection pageOrderDirection = PageOrderDirection.leftToRight;
   bool copyrightAcknowledged = false;
 

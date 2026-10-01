@@ -110,14 +110,9 @@ object OpenCvScanEngine {
         }
         val cropped = applied != null && !OpenCvQuadMath.isNearlyFullFrame(arrayToPairs(applied))
         var page = if (cropped) warp(src, applied!!) else src
-        // Document filters need paper flattening even on a full-frame still;
-        // otherwise B&W looks like a raw camera threshold of the desk photo.
-        val needsFlatten = removeShadows && (
-            cropped ||
-                filter == "blackAndWhite" ||
-                filter == "grayscale" ||
-                filter == "enhancedColor"
-            )
+        // Phone-sized shadows are low-frequency blobs. Flatten every scan
+        // look except Photo, including a full-frame original page.
+        val needsFlatten = removeShadows && filter != "photo"
         if (needsFlatten) {
             val norm = normalizeIllumination(page)
             if (page !== src) page.release()
@@ -242,7 +237,7 @@ object OpenCvScanEngine {
         val scale = 300.0 / src.cols()
         Imgproc.resize(src, small, Size(300.0, max(1.0, src.rows() * scale)))
         val blur = Mat()
-        Imgproc.GaussianBlur(small, blur, Size(0.0, 0.0), 12.0)
+        Imgproc.GaussianBlur(small, blur, Size(0.0, 0.0), 24.0)
         small.release()
         val bg = Mat()
         Imgproc.resize(blur, bg, src.size(), 0.0, 0.0, Imgproc.INTER_LINEAR)

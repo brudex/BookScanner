@@ -5,10 +5,9 @@ status, source files, tests, and verification evidence. Updated after every
 vertical slice. Nothing here is marked "done" unless it has been run and
 observed working, not just written.
 
-**Last updated:** 2026-09-23 (home header: no app name; search → scans).
-Home no longer shows “BookScanner”. Search (left) and Settings (right)
-sit on opposite sides; tapping search opens `/scans` with an autofocused
-search field. Inline home search bar removed.
+**Last updated:** 2026-09-26 (capture no longer processes each shot).
+Shutter only saves the photo. Crop and the document filter run when the
+user taps Process pages on Review.
 
 **Environment verified in:** macOS 26.6.2 (darwin-arm64), Flutter 3.38.7,
 Xcode 26.6, Android SDK 36.1, Android emulator `Medium_Phone_API_36.1`

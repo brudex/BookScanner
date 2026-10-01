@@ -156,7 +156,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
         if (_viewModel.resultPreviewPath != null)
           _ProcessedResultPreview(path: _viewModel.resultPreviewPath!)
         else if (_viewModel.frozenPreviewPath != null)
-          _FrozenCapturePreview(path: _viewModel.frozenPreviewPath!)
+          _FrozenCapturePreview(
+            path: _viewModel.frozenPreviewPath!,
+            zoomIntoGuide: _viewModel.projectType != ProjectType.book,
+          )
         else
           _LivePreview(
             textureId: _viewModel.previewTextureId,
@@ -207,23 +210,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
               _CaptureControls(
                 pageCount: _viewModel.pageCount,
                 capturing: _viewModel.capturing,
-                captureFromAuto: _viewModel.captureFromAuto,
-                autoCaptureEnabled: _viewModel.autoCaptureEnabled,
-                autoCaptureProgress: _viewModel.autoCaptureProgress,
-                autoCaptureSecondsRemaining:
-                    _viewModel.autoCaptureSecondsRemaining,
                 lastPagePreviewPath: _viewModel.lastPagePreviewPath,
-                zoomLevel: _viewModel.zoomLevel,
                 isBook: _viewModel.projectType == ProjectType.book,
                 l10n: l10n,
                 onShutter: () => _viewModel.captureManually(),
-                onZoom: _viewModel.setZoom,
                 onImport: _importFromGallery,
                 onDone: () async {
                   if (_viewModel.pageCount == 0) return;
                   await _viewModel.closeSession();
                   if (!mounted) return;
-                  // Tap Scanner order: Continue → crop → filters → name.
+                  // After shooting: crop this page, then filters, then the next page.
                   final pageId = await _viewModel.firstPageIdOrdered();
                   if (!mounted || pageId == null) return;
                   this.context.pushReplacement(
@@ -387,9 +383,16 @@ class _CaptureTopBar extends StatelessWidget {
 ///
 /// `fit: BoxFit.contain` matches the live preview's letterboxed mapping.
 class _FrozenCapturePreview extends StatelessWidget {
-  const _FrozenCapturePreview({required this.path});
+  const _FrozenCapturePreview({
+    required this.path,
+    this.zoomIntoGuide = true,
+  });
 
   final String path;
+
+  /// Document scans zoom into the frame guide. Book scans keep the full
+  /// photo on screen — nothing outside the guide is thrown away.
+  final bool zoomIntoGuide;
 
   static const _guideContentWidthFraction = 1 - 2 * _guideHorizontalInset;
   static const _guideContentHeightFraction = 1 - 2 * _guideVerticalInset;
@@ -402,7 +405,7 @@ class _FrozenCapturePreview extends StatelessWidget {
       children: [
         ClipRect(
           child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
+            tween: Tween(begin: 0, end: zoomIntoGuide ? 1 : 0),
             duration: const Duration(milliseconds: 400),
             curve: Curves.easeOutCubic,
             builder: (context, t, child) => Transform(
@@ -820,115 +823,104 @@ class _CaptureControls extends StatelessWidget {
   const _CaptureControls({
     required this.pageCount,
     required this.capturing,
-    required this.captureFromAuto,
-    required this.autoCaptureEnabled,
-    required this.autoCaptureProgress,
-    required this.autoCaptureSecondsRemaining,
     required this.lastPagePreviewPath,
-    required this.zoomLevel,
     required this.isBook,
     required this.l10n,
     required this.onShutter,
     required this.onDone,
-    required this.onZoom,
     required this.onImport,
   });
 
   final int pageCount;
   final bool capturing;
-  final bool captureFromAuto;
-  final bool autoCaptureEnabled;
-  final double autoCaptureProgress;
-  final int? autoCaptureSecondsRemaining;
   final String? lastPagePreviewPath;
-  final double zoomLevel;
   final bool isBook;
   final AppLocalizations l10n;
   final VoidCallback onShutter;
   final VoidCallback onDone;
-  final ValueChanged<double> onZoom;
   final VoidCallback onImport;
 
   @override
   Widget build(BuildContext context) {
-    final busy = capturing && !captureFromAuto;
+    final title = isBook ? l10n.captureReadyBookTitle : l10n.captureReadyTitle;
+    final body = isBook ? l10n.captureReadyBookBody : l10n.captureReadyBody;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Slider(
-            key: const ValueKey('captureZoomSlider'),
-            value: zoomLevel,
-            onChanged: busy ? null : onZoom,
-            semanticFormatterCallback: (_) => l10n.captureZoom,
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                l10n.modeDocument.toUpperCase(),
-                style: TextStyle(
-                  color: isBook ? Colors.white38 : Colors.white,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
+          const SizedBox(height: 8),
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+              height: 1.35,
+            ),
+          ),
+          if (pageCount > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              l10n.pagesScanned(pageCount),
+              style: const TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              key: const ValueKey('shutterButton'),
+              onPressed: capturing ? null : onShutter,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                foregroundColor: const Color(0xFF04140C),
+                disabledBackgroundColor: Colors.white24,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
                 ),
               ),
-              const SizedBox(width: 24),
-              Text(
-                l10n.modeBook.toUpperCase(),
-                style: TextStyle(
-                  color: isBook ? Colors.white : Colors.white38,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
-                ),
+              icon: const Icon(LucideIcons.scanLine),
+              label: Text(
+                l10n.captureStartScanning,
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
-            ],
+            ),
           ),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
-                child: Column(
-                  children: [
-                    IconButton(
-                      key: const ValueKey('captureImportButton'),
-                      onPressed: busy ? null : onImport,
-                      tooltip: l10n.captureImport,
-                      icon: const Icon(
-                        LucideIcons.image,
-                        color: Colors.white,
-                        size: 26,
-                      ),
-                    ),
-                    Text(
-                      l10n.captureImport,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+                child: TextButton.icon(
+                  key: const ValueKey('captureImportButton'),
+                  onPressed: capturing ? null : onImport,
+                  icon: const Icon(LucideIcons.image, color: Colors.white),
+                  label: Text(
+                    l10n.captureImport,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                 ),
               ),
-              _ShutterButton(
-                capturing: busy,
-                autoMode: autoCaptureEnabled,
-                autoProgress: autoCaptureProgress,
-                autoSecondsRemaining: autoCaptureSecondsRemaining,
-                onPressed: onShutter,
-              ),
-              Expanded(
-                child: pageCount == 0
-                    ? const SizedBox.shrink()
-                    : _ContinueControl(
-                        pageCount: pageCount,
-                        previewPath: lastPagePreviewPath,
-                        enabled: !busy,
-                        label: l10n.doneScanning,
-                        onPressed: onDone,
-                      ),
-              ),
+              if (pageCount > 0)
+                Expanded(
+                  child: _ContinueControl(
+                    pageCount: pageCount,
+                    previewPath: lastPagePreviewPath,
+                    enabled: !capturing,
+                    label: l10n.doneScanning,
+                    onPressed: onDone,
+                  ),
+                ),
             ],
           ),
         ],
@@ -1080,86 +1072,4 @@ class _ContinueCaretPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ContinueCaretPainter oldDelegate) =>
       oldDelegate.color != color;
-}
-
-class _ShutterButton extends StatelessWidget {
-  const _ShutterButton({
-    required this.capturing,
-    required this.autoMode,
-    required this.autoProgress,
-    required this.autoSecondsRemaining,
-    required this.onPressed,
-  });
-
-  final bool capturing;
-  final bool autoMode;
-  final double autoProgress;
-  final int? autoSecondsRemaining;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final showTimer = autoMode && autoProgress > 0 && !capturing;
-    return Semantics(
-      button: true,
-      label: 'Capture page',
-      child: GestureDetector(
-        key: const ValueKey('shutterButton'),
-        onTap: capturing ? null : onPressed,
-        child: SizedBox(
-          width: 84,
-          height: 84,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 5),
-                  color: capturing ? Colors.white24 : AppTheme.accent,
-                ),
-                child: capturing
-                    ? const SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 3,
-                        ),
-                      )
-                    : showTimer && autoSecondsRemaining != null
-                    ? Text(
-                        '$autoSecondsRemaining',
-                        key: const ValueKey('captureAutoCountdown'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          height: 1.0,
-                        ),
-                      )
-                    : null,
-              ),
-              if (showTimer)
-                SizedBox(
-                  width: 84,
-                  height: 84,
-                  child: CircularProgressIndicator(
-                    key: const ValueKey('captureAutoTimerRing'),
-                    value: autoProgress.clamp(0.0, 1.0),
-                    strokeWidth: 4,
-                    color: const Color(0xFF4C9BFF),
-                    backgroundColor: Colors.white24,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

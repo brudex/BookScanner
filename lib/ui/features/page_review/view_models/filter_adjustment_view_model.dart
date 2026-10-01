@@ -65,6 +65,11 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
   String? _livePreviewPath;
   Timer? _previewDebounce;
   int _previewToken = 0;
+  bool _disposed = false;
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
 
   /// True when controls match the last saved page — show that processed JPEG.
   bool get showingSavedProcessed {
@@ -101,15 +106,16 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
       if (page == null) {
         _error = StateError('Page not found');
         _loading = false;
-        notifyListeners();
+        _notify();
         return;
       }
+      if (_disposed) return;
       _adoptPage(page);
     } on Exception catch (e) {
       _error = e;
     } finally {
       _loading = false;
-      notifyListeners();
+      _notify();
     }
   }
 
@@ -122,10 +128,11 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
     if (path != null) {
       await _evictProcessedPreview(path);
     }
+    if (_disposed) return;
     _livePreviewPath = null;
     _adoptPage(page);
     _previewEpoch++;
-    notifyListeners();
+    _notify();
   }
 
   void _adoptPage(ScanPage page) {
@@ -151,37 +158,37 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
   void selectFilter(PageFilter filter) {
     _filter = filter;
     _scheduleLivePreview();
-    notifyListeners();
+    _notify();
   }
 
   void setBrightness(double value) {
     _brightness = value;
     _scheduleLivePreview();
-    notifyListeners();
+    _notify();
   }
 
   void setContrast(double value) {
     _contrast = value;
     _scheduleLivePreview();
-    notifyListeners();
+    _notify();
   }
 
   void setSharpness(double value) {
     _sharpness = value;
     _scheduleLivePreview();
-    notifyListeners();
+    _notify();
   }
 
   void setFineRotationDegrees(double value) {
     _fineRotationDegrees = value;
     _scheduleLivePreview();
-    notifyListeners();
+    _notify();
   }
 
   void setThreshold(double value) {
     _threshold = value;
     _scheduleLivePreview();
-    notifyListeners();
+    _notify();
   }
 
   void _scheduleLivePreview() {
@@ -201,7 +208,7 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
     if (page == null || showingSavedProcessed) return;
     final token = ++_previewToken;
     _previewRendering = true;
-    notifyListeners();
+    _notify();
     try {
       final path = await _capturePageUseCase.renderAdjustedPreview(
         page,
@@ -212,17 +219,18 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
         fineRotationDegrees: _fineRotationDegrees,
         threshold: _threshold,
       );
-      if (token != _previewToken) return;
+      if (_disposed || token != _previewToken) return;
       await _evictProcessedPreview(path);
+      if (_disposed || token != _previewToken) return;
       _livePreviewPath = path;
       _previewEpoch++;
     } on Object catch (e) {
-      if (token != _previewToken) return;
+      if (_disposed || token != _previewToken) return;
       _error = e;
     } finally {
-      if (token == _previewToken) {
+      if (!_disposed && token == _previewToken) {
         _previewRendering = false;
-        notifyListeners();
+        _notify();
       }
     }
   }
@@ -231,8 +239,9 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
     final page = _page;
     if (page == null) return false;
     _previewDebounce?.cancel();
+    _previewToken++;
     _saving = true;
-    notifyListeners();
+    _notify();
     try {
       final updated = await _capturePageUseCase.reprocessPage(
         page,
@@ -243,10 +252,12 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
         fineRotationDegrees: _fineRotationDegrees,
         threshold: _threshold,
       );
+      if (_disposed) return false;
       final path = updated.processedImagePath;
       if (path != null) {
         await _evictProcessedPreview(path);
       }
+      if (_disposed) return false;
       _livePreviewPath = null;
       _page = updated;
       _previewEpoch++;
@@ -256,7 +267,7 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
       return false;
     } finally {
       _saving = false;
-      notifyListeners();
+      _notify();
     }
   }
 
@@ -271,6 +282,7 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     cancelPendingPreview();
     super.dispose();
   }

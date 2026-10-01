@@ -534,34 +534,22 @@ void main() {
   // (needed to observe the mid-processing state) isn't a supported
   // combination -- it hung rather than settling. A plain `test()` runs real
   // async normally, with no fake-async pump machinery to fight.
-  test('freezes on the captured frame until the page is fully added, '
-      'then clears and the page count reflects it', () async {
+  test('saves the photo and returns to the camera without processing it', () async {
     final gate = Completer<void>();
     enhancementProvider.enhanceGate = gate;
     final viewModel = buildViewModel();
     await viewModel.initialize();
 
     expect(viewModel.pageCount, 0);
-    expect(viewModel.frozenPreviewPath, isNull);
 
     final captureFuture = viewModel.captureManually();
-    // Let captureStill() resolve (setting the frozen path) without
-    // waiting for the gated enhancement step to complete too --
-    // captureStill does real file I/O, so poll briefly rather than
-    // assuming a single microtask turn is enough.
-    for (var i = 0; i < 50 && viewModel.frozenPreviewPath == null; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-
-    expect(viewModel.frozenPreviewPath, isNotNull);
-    expect(viewModel.capturing, isTrue);
-    expect(viewModel.pageCount, 0);
-
-    gate.complete();
     await captureFuture;
 
+    expect(viewModel.capturing, isFalse);
     expect(viewModel.frozenPreviewPath, isNull);
+    expect(viewModel.resultPreviewPath, isNull);
     expect(viewModel.pageCount, 1);
+    expect(gate.isCompleted, isFalse);
   });
 
   test(
@@ -584,37 +572,19 @@ void main() {
     },
   );
 
-  test(
-    'after processing, holds the cropped result on screen before returning to the live camera',
-    () async {
-      final gate = Completer<void>();
-      enhancementProvider.enhanceGate = gate;
-      final viewModel = buildViewModel(
-        resultPreviewHold: const Duration(milliseconds: 80),
-      );
-      await viewModel.initialize();
+  test('does not hold a processed preview after the shot', () async {
+    final viewModel = buildViewModel(
+      resultPreviewHold: const Duration(milliseconds: 80),
+    );
+    await viewModel.initialize();
 
-      final captureFuture = viewModel.captureManually();
-      for (var i = 0; i < 50 && viewModel.frozenPreviewPath == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-      expect(viewModel.frozenPreviewPath, isNotNull);
-      expect(viewModel.resultPreviewPath, isNull);
+    await viewModel.captureManually();
 
-      gate.complete();
-      for (var i = 0; i < 50 && viewModel.resultPreviewPath == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-
-      expect(viewModel.resultPreviewPath, isNotNull);
-      expect(viewModel.frozenPreviewPath, isNull);
-      expect(viewModel.pageCount, 1);
-      expect(File(viewModel.resultPreviewPath!).existsSync(), isTrue);
-
-      await captureFuture;
-      expect(viewModel.resultPreviewPath, isNull);
-    },
-  );
+    expect(viewModel.resultPreviewPath, isNull);
+    expect(viewModel.frozenPreviewPath, isNull);
+    expect(viewModel.pageCount, 1);
+    expect(viewModel.capturing, isFalse);
+  });
 
   testWidgets(
     'shows a fixed capture frame guide as soon as the preview is up, regardless of analysis',
@@ -1039,7 +1009,7 @@ void main() {
     expect(viewModel.pageCount, 1);
   });
 
-  test('a book two-page-spread capture persists two split pages', () async {
+  test('a book capture stores one full page even if the project was a spread', () async {
     projectRepository.nextProject = Project(
       id: 'proj1',
       type: ProjectType.book,
@@ -1053,13 +1023,13 @@ void main() {
     final viewModel = buildViewModel();
     await viewModel.initialize();
     final pages = await viewModel.captureManually();
-    expect(pages, hasLength(2));
-    expect(viewModel.pageCount, 2);
-    expect(pages[0].spreadSiblingPageId, pages[1].id);
-    expect(pages[1].spreadSiblingPageId, pages[0].id);
+    expect(pages, hasLength(1));
+    expect(viewModel.pageCount, 1);
+    expect(pages.single.spreadSiblingPageId, isNull);
+    expect(pages.single.cropPoints, Quad.fullFrame);
   });
 
-  test('a book single-page capture persists one dewarped page', () async {
+  test('a book single-page capture persists the full photo', () async {
     projectRepository.nextProject = Project(
       id: 'proj1',
       type: ProjectType.book,
@@ -1076,7 +1046,8 @@ void main() {
     expect(pages, hasLength(1));
     expect(viewModel.pageCount, 1);
     expect(pages.single.spreadSiblingPageId, isNull);
-    expect(pages.single.stages[PipelineStage.dewarp], isNotNull);
+    expect(pages.single.cropPoints, Quad.fullFrame);
+    expect(pages.single.stages[PipelineStage.dewarp], isNull);
     expect(pages.single.stages[PipelineStage.split], isNull);
   });
 
@@ -1121,7 +1092,7 @@ void main() {
     expect(find.byKey(const ValueKey('captureFlashButton')), findsOneWidget);
     expect(find.byKey(const ValueKey('captureAutoToggle')), findsOneWidget);
     expect(find.byKey(const ValueKey('captureImportButton')), findsOneWidget);
-    expect(find.byKey(const ValueKey('captureZoomSlider')), findsOneWidget);
+    expect(find.byKey(const ValueKey('shutterButton')), findsOneWidget);
   });
 
   testWidgets('Auto/Manual toggle switches capture mode', (tester) async {

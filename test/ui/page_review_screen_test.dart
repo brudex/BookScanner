@@ -171,7 +171,7 @@ void main() {
 
       // First frame: pages haven't arrived yet (still `loading`), so the
       // Export button must start disabled.
-      var exportButton = tester.widget<IconButton>(
+      var exportButton = tester.widget<FilledButton>(
         find.byKey(const ValueKey('reviewExportButton')),
       );
       expect(exportButton.onPressed, isNull);
@@ -185,10 +185,27 @@ void main() {
       // `_viewModel.pages.isEmpty` because it sat outside a
       // `ListenableBuilder`, so it stayed disabled forever even once pages
       // genuinely loaded.
-      exportButton = tester.widget<IconButton>(
+      exportButton = tester.widget<FilledButton>(
         find.byKey(const ValueKey('reviewExportButton')),
       );
       expect(exportButton.onPressed, isNotNull);
+      await tester.tap(find.byKey(const ValueKey('reviewExportButton')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('reviewExportPdf')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reviewExportMarkdown')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reviewExportEpub')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reviewPdfOptions')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reviewMarkdownOptions')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('reviewExportMarkdown')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('reviewPdfOptions')), findsNothing);
+      expect(find.byKey(const ValueKey('reviewMarkdownOptions')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('reviewExportEpub')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('reviewMarkdownOptions')), findsNothing);
+      expect(find.byKey(const ValueKey('reviewEpubOptions')), findsOneWidget);
       expect(find.byKey(const ValueKey('reviewAddCamera')), findsOneWidget);
       expect(find.byKey(const ValueKey('reviewAddGallery')), findsOneWidget);
       expect(find.byKey(const ValueKey('reviewAddFromFiles')), findsOneWidget);

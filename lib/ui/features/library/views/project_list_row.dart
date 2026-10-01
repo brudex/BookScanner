@@ -79,7 +79,10 @@ class ProjectListRow extends StatelessWidget {
         ),
         child: Material(
           color: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
           borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
             onLongPress: onLongPress,
@@ -162,6 +165,11 @@ class ProjectListRow extends StatelessWidget {
                   ] else if (!selectionMode) ...[
                     IconButton(
                       key: const ValueKey('projectFavoriteButton'),
+                      style: IconButton.styleFrom(
+                        shape: const CircleBorder(),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: Colors.transparent,
+                      ),
                       visualDensity: VisualDensity.compact,
                       iconSize: 16,
                       icon: Icon(
@@ -177,6 +185,11 @@ class ProjectListRow extends StatelessWidget {
                       key: const ValueKey('projectRowMenu'),
                       tooltip: l10n.projectRowMenu,
                       color: AppTheme.homeCard,
+                      style: IconButton.styleFrom(
+                        shape: const CircleBorder(),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: Colors.transparent,
+                      ),
                       onSelected: (action) {
                         switch (action) {
                           case ProjectRowAction.share:
@@ -273,14 +286,16 @@ class ProjectTypeBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: book ? const Color(0xFFEEE8FA) : const Color(0xFFE5F6EA),
+        color: book
+            ? const Color(0x3322A8FF)
+            : const Color(0x333DFF8A),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         label,
         style: TextStyle(
           fontFamily: AppTheme.fontFamily,
-          color: book ? const Color(0xFF6B5C9E) : const Color(0xFF2F9E5C),
+          color: book ? const Color(0xFF8FD0FF) : AppTheme.accent,
           fontSize: 10,
           fontWeight: FontWeight.w600,
         ),

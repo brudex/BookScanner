@@ -211,7 +211,7 @@ class ProjectRepositoryImpl implements ProjectRepository {
         row['page_order_direction']! as String,
       ),
       bookScanMode: BookScanMode.values.byName(
-        row['book_scan_mode'] as String? ?? 'twoPageSpread',
+        row['book_scan_mode'] as String? ?? 'singlePage',
       ),
     ),
     pageOrder: JsonCodecHelpers.decodeStringList(row['page_order'] as String?),

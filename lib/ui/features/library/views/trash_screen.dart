@@ -97,7 +97,7 @@ class _TrashScreenState extends State<TrashScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Theme(
-      data: AppTheme.light(),
+      data: AppTheme.homeShell(),
       child: Scaffold(
         appBar: AppBar(title: Text(l10n.trash)),
         body: ListenableBuilder(

@@ -12,8 +12,8 @@ import '../../../../domain/providers/capture_provider.dart';
 import '../../local/app_paths.dart';
 
 /// Production [CaptureProvider] backed by `cunning_document_scanner`
-/// (ML Kit Document Scanner on Android, VisionKit on iOS). SPEC 9.6 allows
-/// this as a basic-document fallback; it is not the primary book UI.
+/// (ML Kit Document Scanner on Android, VisionKit on iOS). Registered as
+/// the primary scanner while we compare its results with the in-app camera.
 class CunningDocumentScannerCaptureProvider
     implements CaptureProvider, BatchDocumentCapture {
   CunningDocumentScannerCaptureProvider({required AppPaths paths, Uuid? uuid})

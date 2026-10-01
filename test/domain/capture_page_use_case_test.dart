@@ -272,6 +272,33 @@ void main() {
   );
 
   test(
+    'processCapture keepOriginal stores the import without crop or document filter',
+    () async {
+      final page = await useCase.processCapture(
+        capture: StillCapture(
+          originalImagePath: originalImagePath,
+          detectedQuad: null,
+          qualityScore: 0.8,
+          warnings: const {},
+          capturedAtMs: 123,
+          providerInfo: const ProviderInfo(
+            providerName: 'pdf-import',
+            adapterVersion: '1',
+          ),
+        ),
+        projectId: 'proj1',
+        sequence: 0,
+        keepOriginal: true,
+      );
+
+      expect(enhancementProvider.lastRequest?.passthrough, isTrue);
+      expect(enhancementProvider.lastRequest?.detectCrop, isFalse);
+      expect(enhancementProvider.lastRequest?.filter, PageFilter.original);
+      expect(page.filter, PageFilter.original);
+    },
+  );
+
+  test(
     'reprocessPage with a new filter keeps the saved crop on the retained original',
     () async {
       const crop = Quad(

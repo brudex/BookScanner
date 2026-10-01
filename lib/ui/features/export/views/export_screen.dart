@@ -9,20 +9,31 @@ import '../../../../domain/repositories/export_job_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
 import '../../../../domain/repositories/settings_repository.dart';
 import '../../../../domain/use_cases/export_images_use_case.dart';
+import '../../../../domain/use_cases/export_on_server_use_case.dart';
 import '../../../../domain/use_cases/export_project_use_case.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../../routing/app_router.dart';
 import '../../../core/di/service_locator.dart';
 import '../view_models/export_view_model.dart';
 import 'export_job_status_views.dart';
+import '../../page_review/views/export_convert_sheet.dart';
+import '../../../core/theme/app_theme.dart';
 
 class ExportScreen extends StatefulWidget {
-  const ExportScreen({super.key, required this.projectId, this.viewModel});
+  const ExportScreen({
+    super.key,
+    required this.projectId,
+    this.viewModel,
+    this.launch,
+  });
 
   final String projectId;
 
   /// Injectable for widget tests; production code leaves this null.
   final ExportViewModel? viewModel;
+
+  /// Set when Review's Export / Convert sheet already chose a format.
+  final ExportLaunch? launch;
 
   @override
   State<ExportScreen> createState() => _ExportScreenState();
@@ -43,8 +54,22 @@ class _ExportScreenState extends State<ExportScreen> {
           exportProjectUseCase: locator<ExportProjectUseCase>(),
           settingsRepository: locator<SettingsRepository>(),
           exportImagesUseCase: locator<ExportImagesUseCase>(),
+          exportOnServer: locator<ExportOnServerUseCase>(),
         );
-    _viewModel.initialize();
+    final launch = widget.launch;
+    if (launch?.pdfOptions != null) {
+      _viewModel.setPdfOptions(launch!.pdfOptions!);
+    }
+    if (launch?.markdownOptions != null) {
+      _viewModel.setMarkdownOptions(launch!.markdownOptions!);
+    }
+    if (launch?.epubOptions != null) {
+      _viewModel.setEpubOptions(launch!.epubOptions!);
+    }
+    _viewModel.initialize().then((_) {
+      if (!mounted || launch == null) return;
+      unawaited(_startExport(launch.format));
+    });
   }
 
   @override
@@ -187,7 +212,10 @@ class _ExportScreenState extends State<ExportScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
+    return Theme(
+      data: AppTheme.homeShell(),
+      child: Scaffold(
+      backgroundColor: AppTheme.homeBackground,
       appBar: AppBar(
         title: Text(l10n.exportTitle),
         actions: [
@@ -238,6 +266,7 @@ class _ExportScreenState extends State<ExportScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }

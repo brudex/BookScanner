@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -110,7 +110,6 @@
 				9E178C7B571E6A16562C6076 /* OcrContract.swift */,
 				C1DDE7CCD5D93908E5C19352 /* OcrPlugin.swift */,
 			);
-			name = Ocr;
 			path = Ocr;
 			sourceTree = "<group>";
 		};
@@ -130,7 +129,6 @@
 				038C942ED63803839C6A94D1 /* AVFoundationCaptureController.swift */,
 				C0E95175B1C73ABC86D81312 /* CapturePlugin.swift */,
 			);
-			name = Capture;
 			path = Capture;
 			sourceTree = "<group>";
 		};
@@ -144,7 +142,6 @@
 				063507ABEC3586CD6163B50E /* Pods-RunnerTests.release.xcconfig */,
 				C3D2236F03D095643B0B8360 /* Pods-RunnerTests.profile.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -213,7 +210,6 @@
 			children = (
 				A1B2C3D4E5F60718293A4B5C /* VisionPlugin.swift */,
 			);
-			name = Processing;
 			path = Processing;
 			sourceTree = "<group>";
 		};
@@ -536,6 +532,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 5Y42744LXS;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -718,6 +715,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 5Y42744LXS;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -740,6 +738,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 5Y42744LXS;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

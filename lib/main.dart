@@ -68,9 +68,9 @@ class _BookScannerAppState extends State<BookScannerApp>
     return MaterialApp.router(
       title: 'BookScanner',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.light,
+      theme: AppTheme.homeShell(),
+      darkTheme: AppTheme.homeShell(),
+      themeMode: ThemeMode.dark,
       routerConfig: appRouter,
       localizationsDelegates: const [
         AppLocalizations.delegate,

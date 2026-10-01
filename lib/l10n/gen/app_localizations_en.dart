@@ -52,10 +52,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeStatPages => 'Pages';
 
   @override
-  String get homeActionDocumentScan => 'Document scan';
+  String get homeActionDocumentScan => 'Document';
 
   @override
-  String get homeActionBookScan => 'Book scan';
+  String get homeActionDocumentScanSubtitle => 'Single or multiple pages';
+
+  @override
+  String get homeActionBookScan => 'Book';
+
+  @override
+  String get homeActionBookScanSubtitle => 'Scan pages as book';
+
+  @override
+  String get homeActionIdScan => 'ID Card';
+
+  @override
+  String get homeActionIdScanSubtitle => 'Passport, ID, license';
 
   @override
   String get homeActionImport => 'Import';
@@ -341,6 +353,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get captureImport => 'Import';
 
   @override
+  String get captureReadyTitle => 'Ready to scan';
+
+  @override
+  String get captureReadyBookTitle => 'Ready to scan your book';
+
+  @override
+  String get captureReadyBody =>
+      'Start scanning opens the scanner. Take your pages there. When you come back, you\'ll crop each page, then set its filters.';
+
+  @override
+  String get captureReadyBookBody =>
+      'Start scanning opens the scanner. Photograph one page at a time. When you come back, you\'ll crop each page, then set its filters.';
+
+  @override
+  String get captureStartScanning => 'Start scanning';
+
+  @override
   String get captureGrid => 'Grid';
 
   @override
@@ -395,13 +424,88 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reviewTitle => 'Review pages';
 
   @override
-  String get reviewAddCamera => 'Camera';
+  String get reviewAddCamera => 'Add from Camera';
 
   @override
-  String get reviewAddGallery => 'Gallery';
+  String get reviewAddGallery => 'Add from Gallery';
 
   @override
-  String get reviewAddFromFiles => 'Import from Files';
+  String get reviewAddFromFiles => 'Import Files';
+
+  @override
+  String get reviewExportConvert => 'Export / Convert';
+
+  @override
+  String get reviewExportSheetSubtitle =>
+      'Choose a format to export your document';
+
+  @override
+  String get reviewExportPdf => 'Export as PDF';
+
+  @override
+  String get reviewExportPdfHint =>
+      'Create a high-quality, searchable PDF with OCR text.';
+
+  @override
+  String get reviewExportMarkdown => 'Export as Markdown';
+
+  @override
+  String get reviewExportMarkdownHint =>
+      'Recognize text (OCR) and convert to clean Markdown with headings, tables and structure.';
+
+  @override
+  String get reviewExportEpub => 'Export as EPUB';
+
+  @override
+  String get reviewExportEpubHint =>
+      'Create a readable EPUB for eBook readers. Best for scanned books.';
+
+  @override
+  String get reviewExportPdfOptions => 'PDF OPTIONS';
+
+  @override
+  String get reviewExportMarkdownOptions => 'MARKDOWN OPTIONS';
+
+  @override
+  String get reviewExportEpubOptions => 'EPUB OPTIONS';
+
+  @override
+  String get reviewExportOcr => 'OCR (Make text searchable)';
+
+  @override
+  String get reviewExportImageQuality => 'Image quality';
+
+  @override
+  String get reviewExportQualityHigh => 'High (Best)';
+
+  @override
+  String get reviewExportQualityMedium => 'Medium';
+
+  @override
+  String get reviewExportQualityLow => 'Low (Smaller)';
+
+  @override
+  String get reviewExportToPdf => 'Export to PDF';
+
+  @override
+  String get reviewExportToMarkdown => 'Export to Markdown';
+
+  @override
+  String get reviewExportToEpub => 'Export to EPUB';
+
+  @override
+  String get reviewIncludePageMarkers => 'Page markers';
+
+  @override
+  String get reviewIncludePageImages => 'Include page images';
+
+  @override
+  String get reviewPageOrder => 'Page order';
+
+  @override
+  String reviewPageLabel(int number) {
+    return 'Page $number';
+  }
 
   @override
   String get reviewAddPagesTooltip => 'Add pages';

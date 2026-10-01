@@ -121,4 +121,11 @@ abstract interface class DocumentExportProvider {
     DocxExportOptions options, {
     ExportProgressCallback? onProgress,
   });
+
+  /// Writes an EPUB 3 package (XHTML chapters, optional page images).
+  Future<ExportOutput> exportEpub(
+    ExportDocumentInput input,
+    EpubExportOptions options, {
+    ExportProgressCallback? onProgress,
+  });
 }

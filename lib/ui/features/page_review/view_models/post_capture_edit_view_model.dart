@@ -42,6 +42,12 @@ class PostCaptureEditViewModel extends ChangeNotifier {
   Object? _error;
   Object? get error => _error;
 
+  bool _disposed = false;
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
   ScanPage? get currentPage =>
       _pages.isEmpty ? null : _pages[_index.clamp(0, _pages.length - 1)];
 
@@ -49,7 +55,7 @@ class PostCaptureEditViewModel extends ChangeNotifier {
 
   Future<void> initialize({String? initialPageId}) async {
     _loading = true;
-    notifyListeners();
+    _notify();
     try {
       final project = await _projectRepository.getProject(projectId);
       final all = await _pageRepository.getPages(projectId);
@@ -75,23 +81,30 @@ class PostCaptureEditViewModel extends ChangeNotifier {
       _error = e;
     } finally {
       _loading = false;
-      notifyListeners();
+      _notify();
     }
   }
 
   Future<void> _bindEditor() async {
-    _editor?.dispose();
-    final page = currentPage;
-    if (page == null) {
+    final previous = _editor;
+    if (previous != null) {
+      // Drop the listener while the editor is still alive, then dispose it.
       _editor = null;
-      return;
+      _notify();
+      previous.dispose();
     }
+    final page = currentPage;
+    if (page == null || _disposed) return;
     final editor = FilterAdjustmentViewModel(
       pageId: page.id,
       pageRepository: _pageRepository,
       capturePageUseCase: _capturePageUseCase,
     );
     await editor.initialize();
+    if (_disposed) {
+      editor.dispose();
+      return;
+    }
     _editor = editor;
   }
 
@@ -120,7 +133,7 @@ class PostCaptureEditViewModel extends ChangeNotifier {
     } else {
       await _bindEditor();
     }
-    notifyListeners();
+    _notify();
   }
 
   Future<bool> saveAndAdvance() async {
@@ -129,17 +142,18 @@ class PostCaptureEditViewModel extends ChangeNotifier {
     final ok = await editor.apply();
     if (!ok) {
       _error = editor.error;
-      notifyListeners();
+      _notify();
       return false;
     }
+    if (_disposed) return false;
     if (isLastPage) {
       _finished = true;
-      notifyListeners();
+      _notify();
       return true;
     }
     _index++;
     await _bindEditor();
-    notifyListeners();
+    _notify();
     return true;
   }
 
@@ -148,7 +162,9 @@ class PostCaptureEditViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _editor?.dispose();
+    _editor = null;
     super.dispose();
   }
 }

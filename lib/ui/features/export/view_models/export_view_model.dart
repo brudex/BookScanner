@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 
@@ -7,7 +8,9 @@ import '../../../../domain/models/project.dart';
 import '../../../../domain/repositories/export_job_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
 import '../../../../domain/repositories/settings_repository.dart';
+import '../../../../domain/providers/conversion_api.dart';
 import '../../../../domain/use_cases/export_images_use_case.dart';
+import '../../../../domain/use_cases/export_on_server_use_case.dart';
 import '../../../../domain/use_cases/export_project_use_case.dart';
 
 class ExportViewModel extends ChangeNotifier {
@@ -18,11 +21,13 @@ class ExportViewModel extends ChangeNotifier {
     required ExportProjectUseCase exportProjectUseCase,
     required SettingsRepository settingsRepository,
     required ExportImagesUseCase exportImagesUseCase,
+    ExportOnServerUseCase? exportOnServer,
   }) : _projectRepository = projectRepository,
        _exportJobRepository = exportJobRepository,
        _exportProjectUseCase = exportProjectUseCase,
        _settingsRepository = settingsRepository,
-       _exportImagesUseCase = exportImagesUseCase;
+       _exportImagesUseCase = exportImagesUseCase,
+       _exportOnServer = exportOnServer;
 
   final String projectId;
   final ProjectRepository _projectRepository;
@@ -30,9 +35,21 @@ class ExportViewModel extends ChangeNotifier {
   final ExportProjectUseCase _exportProjectUseCase;
   final SettingsRepository _settingsRepository;
   final ExportImagesUseCase _exportImagesUseCase;
+  final ExportOnServerUseCase? _exportOnServer;
 
   PdfExportOptions _pdfOptions = const PdfExportOptions();
   PdfExportOptions get pdfOptions => _pdfOptions;
+
+  MarkdownExportOptions _markdownOptions = const MarkdownExportOptions();
+  EpubExportOptions _epubOptions = const EpubExportOptions();
+
+  void setMarkdownOptions(MarkdownExportOptions value) {
+    _markdownOptions = value;
+  }
+
+  void setEpubOptions(EpubExportOptions value) {
+    _epubOptions = value;
+  }
 
   void setPdfOptions(PdfExportOptions value) {
     _pdfOptions = value;
@@ -115,6 +132,62 @@ class ExportViewModel extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
+      final server = _exportOnServer;
+      if (server != null && _serverFormat(format)) {
+        debugPrint('[export] startExport ${format.name} via API');
+        developer.log(
+          'startExport ${format.name} via API',
+          name: 'export',
+        );
+        _job = ExportJob(
+          id: 'remote-${DateTime.now().millisecondsSinceEpoch}',
+          projectId: projectId,
+          format: format,
+          status: ExportJobStatus.running,
+          createdAt: DateTime.now(),
+        );
+        notifyListeners();
+        try {
+          final output = await server.call(
+            projectId: projectId,
+            title: _project?.title ?? 'Untitled',
+            format: format,
+            author: _project?.metadata.author,
+            pdfOptions: _pdfOptions,
+            onProgress: (progress) {
+              final current = _job;
+              if (current == null) return;
+              _job = current.copyWith(progress: progress);
+              notifyListeners();
+            },
+          );
+          _job = _job!.copyWith(
+            status: ExportJobStatus.completed,
+            progress: 1,
+            outputPath: output,
+            completedAt: DateTime.now(),
+          );
+        } on ConversionException catch (e) {
+          debugPrint('[export] API export failed code=${e.code} ${e.message}');
+          developer.log(
+            'API export failed code=${e.code} ${e.message}',
+            name: 'export',
+          );
+          _job = _job?.copyWith(
+            status: ExportJobStatus.failed,
+            error: e.message,
+          );
+        } on Exception catch (e) {
+          debugPrint('[export] export failed before/around API: $e');
+          developer.log('export failed before/around API: $e', name: 'export');
+          _job = _job?.copyWith(
+            status: ExportJobStatus.failed,
+            error: e.toString(),
+          );
+        }
+        notifyListeners();
+        return;
+      }
       final job = await _exportProjectUseCase.export(
         projectId: projectId,
         title: _project?.title ?? 'Untitled',
@@ -123,8 +196,9 @@ class ExportViewModel extends ChangeNotifier {
         language: _project?.metadata.language ?? 'en',
         isbn: _project?.metadata.isbn,
         pdfOptions: _pdfOptions,
-        markdownOptions: const MarkdownExportOptions(),
+        markdownOptions: _markdownOptions,
         docxOptions: const DocxExportOptions(),
+        epubOptions: _epubOptions,
       );
       _job = job;
       _jobSubscription?.cancel();
@@ -137,6 +211,11 @@ class ExportViewModel extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  bool _serverFormat(ExportFormat format) =>
+      format == ExportFormat.searchablePdf ||
+      format == ExportFormat.markdown ||
+      format == ExportFormat.epub;
 
   @override
   void dispose() {

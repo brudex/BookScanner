@@ -36,19 +36,30 @@ class CapturePageUseCase {
     required String projectId,
     required int sequence,
     PageFilter filter = kDefaultCaptureFilter,
+
+    /// When true, the page is stored as the imported file. No crop, document
+    /// filter, or OCR-style enhancement — used for PDF and file import so a
+    /// merge keeps the original pages.
+    bool keepOriginal = false,
   }) async {
     final pageId = _uuid.v4();
+    final appliedFilter = keepOriginal ? PageFilter.original : filter;
+    final passthrough = keepOriginal || capture.nativeReady;
 
-    final outputPath = _paths.processedPathFor(pageId, ext: 'jpg');
+    final outputPath = _paths.processedPathFor(
+      pageId,
+      ext: passthrough ? _sourceExt(capture.originalImagePath) : 'jpg',
+    );
     final enhancement = await _enhancementProvider.enhance(
       EnhancementRequest(
         sourceImagePath: capture.originalImagePath,
         outputImagePath: outputPath,
         cropPoints: capture.detectedQuad ?? Quad.fullFrame,
         rotationDegrees: 0,
-        filter: filter,
-        detectCrop: !capture.nativeReady,
-        passthrough: capture.nativeReady,
+        filter: appliedFilter,
+        detectCrop: !passthrough,
+        passthrough: passthrough,
+        removeShadowsAndStains: !passthrough,
       ),
     );
 
@@ -61,7 +72,7 @@ class CapturePageUseCase {
       processedImagePath: enhancement.processedImagePath,
       thumbnailPath: enhancement.thumbnailPath,
       cropPoints: enhancement.cropPoints,
-      filter: filter,
+      filter: appliedFilter,
       qualityScore: enhancement.qualityScore,
       warnings: capture.warnings,
       capturedAtMs: capture.capturedAtMs,
@@ -82,6 +93,31 @@ class CapturePageUseCase {
       },
     );
 
+    await _pageRepository.addPage(page);
+    return page;
+  }
+
+  /// Stores the shutter photo and returns. Crop and filters happen page by
+  /// page after the user taps Done, not on Review.
+  Future<ScanPage> saveShot({
+    required StillCapture capture,
+    required String projectId,
+    required int sequence,
+  }) async {
+    final page = ScanPage(
+      id: _uuid.v4(),
+      projectId: projectId,
+      sequence: sequence,
+      originalImagePath: capture.originalImagePath,
+      processedImagePath: capture.originalImagePath,
+      thumbnailPath: capture.originalImagePath,
+      cropPoints: Quad.fullFrame,
+      filter: PageFilter.original,
+      qualityScore: capture.qualityScore,
+      warnings: capture.warnings,
+      capturedAtMs: capture.capturedAtMs,
+      status: PageStatus.ready,
+    );
     await _pageRepository.addPage(page);
     return page;
   }
@@ -229,4 +265,11 @@ class CapturePageUseCase {
     await _pageRepository.updatePage(replaced);
     return replaced;
   }
+}
+
+String _sourceExt(String path) {
+  final slash = path.lastIndexOf('/');
+  final dot = path.lastIndexOf('.');
+  if (dot <= slash || dot == path.length - 1) return 'jpg';
+  return path.substring(dot + 1).toLowerCase();
 }

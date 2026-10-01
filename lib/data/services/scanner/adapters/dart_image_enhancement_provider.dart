@@ -45,6 +45,8 @@ class DartImageEnhancementProvider implements ImageEnhancementProvider {
 
   @override
   Future<EnhancementResult> enhance(EnhancementRequest request) async {
+    if (request.passthrough) return _copyOriginal(request);
+
     final pageId = p.basenameWithoutExtension(request.outputImagePath);
     final thumbnailPath = _fileStorage.paths.thumbnailPathFor(pageId);
 
@@ -72,6 +74,25 @@ class DartImageEnhancementProvider implements ImageEnhancementProvider {
       qualityScore: result.qualityScore,
       providerInfo: info,
       cropPoints: result.cropPoints,
+    );
+  }
+
+  /// Byte-copies the source so an import is not re-encoded as a scan.
+  Future<EnhancementResult> _copyOriginal(EnhancementRequest request) async {
+    final pageId = p.basenameWithoutExtension(request.outputImagePath);
+    final dest = File(request.outputImagePath);
+    await dest.parent.create(recursive: true);
+    await File(request.sourceImagePath).copy(dest.path);
+    final thumbnailPath = await _fileStorage.generateThumbnail(
+      dest.path,
+      pageId,
+    );
+    return EnhancementResult(
+      processedImagePath: dest.path,
+      thumbnailPath: thumbnailPath,
+      qualityScore: await scoreQuality(dest.path),
+      providerInfo: info,
+      cropPoints: Quad.fullFrame,
     );
   }
 }
@@ -166,15 +187,11 @@ _EnhancementJobResult _runEnhancementJob(_EnhancementJob job) {
     );
   }
 
-  // Flatten paper lighting before document filters. B&W/grayscale look
-  // "raw" on a camera still unless illumination is normalized first —
-  // even when detection fell back to full-frame (no crop).
+  // Phone and room shadows are removed for every scan look except Photo.
+  // Full-frame pages used to skip this, so the phone's shadow survived the
+  // saved page whenever the user did not crop.
   final needsPaperFlatten =
-      job.removeShadowsAndStains &&
-      (cropped ||
-          job.filter == PageFilter.blackAndWhite ||
-          job.filter == PageFilter.grayscale ||
-          job.filter == PageFilter.enhancedColor);
+      job.removeShadowsAndStains && job.filter != PageFilter.photo;
   if (needsPaperFlatten) {
     decoded = _flattenIllumination(decoded);
     decoded = img.gaussianBlur(decoded, radius: 1);
@@ -335,7 +352,7 @@ img.Image _flattenIllumination(img.Image src) {
     width: downscaleWidth,
     height: (src.height * scale).round().clamp(1, src.height),
   );
-  final blurredSmall = img.gaussianBlur(small, radius: 12);
+  final blurredSmall = img.gaussianBlur(small, radius: 24);
   final background = img.copyResize(
     blurredSmall,
     width: src.width,

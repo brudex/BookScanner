@@ -7,6 +7,7 @@ import '../../../../domain/repositories/project_repository.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../../routing/app_router.dart';
 import '../../../core/di/service_locator.dart';
+import '../../../core/theme/app_theme.dart';
 
 /// Mode picker shown when the user taps "New Scan" (SPEC 5.1 step 1, 5.2
 /// step 1). Creates the project immediately so it exists (and is
@@ -47,32 +48,38 @@ class _NewScanSheetRouteState extends State<NewScanSheetRoute> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(l10n.newScanModeTitle)),
-      body: _creating
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  _ModeCard(
-                    key: const ValueKey('newScanModeDocument'),
-                    icon: LucideIcons.fileText,
-                    title: l10n.modeDocument,
-                    subtitle: l10n.modeDocumentSubtitle,
-                    onTap: () => _createAndGo(ProjectType.document),
-                  ),
-                  const SizedBox(height: 16),
-                  _ModeCard(
-                    key: const ValueKey('newScanModeBook'),
-                    icon: LucideIcons.bookOpen,
-                    title: l10n.modeBook,
-                    subtitle: l10n.modeBookSubtitle,
-                    onTap: () => _createAndGo(ProjectType.book),
-                  ),
-                ],
+    return Theme(
+      data: AppTheme.homeShell(),
+      child: Scaffold(
+        backgroundColor: AppTheme.homeBackground,
+        appBar: AppBar(title: Text(l10n.newScanModeTitle)),
+        body: _creating
+            ? const Center(
+                child: CircularProgressIndicator(color: AppTheme.accent),
+              )
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  children: [
+                    _ModeCard(
+                      key: const ValueKey('newScanModeDocument'),
+                      icon: LucideIcons.fileText,
+                      title: l10n.modeDocument,
+                      subtitle: l10n.modeDocumentSubtitle,
+                      onTap: () => _createAndGo(ProjectType.document),
+                    ),
+                    const SizedBox(height: 12),
+                    _ModeCard(
+                      key: const ValueKey('newScanModeBook'),
+                      icon: LucideIcons.bookOpen,
+                      title: l10n.modeBook,
+                      subtitle: l10n.modeBookSubtitle,
+                      onTap: () => _createAndGo(ProjectType.book),
+                    ),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -93,13 +100,53 @@ class _ModeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
-        leading: Icon(icon, size: 36),
-        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-        subtitle: Text(subtitle),
+    return Material(
+      color: AppTheme.homeCard,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: AppTheme.homeHairline),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
         onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(icon, size: 32, color: AppTheme.accent),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontFamily: AppTheme.fontFamily,
+                        color: AppTheme.homeText,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontFamily: AppTheme.fontFamily,
+                        color: AppTheme.homeMuted,
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(LucideIcons.chevronRight, color: AppTheme.accent),
+            ],
+          ),
+        ),
       ),
     );
   }

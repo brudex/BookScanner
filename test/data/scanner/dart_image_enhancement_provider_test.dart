@@ -373,10 +373,8 @@ void main() {
       test(
         'flattens a shadow-like background luminance gradient toward uniform',
         () async {
-          // Corpus: "shadows" -- a smooth luminance ramp across the page, as a
-          // soft shadow or uneven lighting would produce. Flatten only runs
-          // after a real crop (full-frame photos skip it), so this uses a
-          // slight inset.
+          // A smooth luminance ramp, the same shape as a phone or room
+          // shadow. Flattening runs for the original look too.
           const inset = Quad(
             topLeft: Point2D(x: 0.04, y: 0.04),
             topRight: Point2D(x: 0.96, y: 0.04),
@@ -443,7 +441,7 @@ void main() {
         },
       );
 
-      test('skips illumination flatten when the crop is full-frame', () async {
+      test('flattens a phone-like shadow on a full-frame original page', () async {
         final sourcePath = writeImage(
           gradientBackground(300),
           'shadow_fullframe.jpg',
@@ -471,7 +469,7 @@ void main() {
           150,
         );
 
-        expect(afterStddev, greaterThan(beforeStddev * 0.7));
+        expect(afterStddev, lessThan(beforeStddev * 0.5));
       });
     },
   );
@@ -559,4 +557,24 @@ void main() {
       expect(out.getPixel(150, 40).r.toInt(), lessThan(40));
     },
   );
+
+  test('passthrough copies the source bytes and does not refilter', () async {
+    final sourcePath = writeImage(checkerboard(80, 8, 200, 40), 'import.png.jpg');
+    final sourceBytes = File(sourcePath).readAsBytesSync();
+    final outputPath = p.join(tmpDir.path, 'import-copy.jpg');
+    final result = await provider.enhance(
+      EnhancementRequest(
+        sourceImagePath: sourcePath,
+        outputImagePath: outputPath,
+        cropPoints: Quad.fullFrame,
+        rotationDegrees: 0,
+        filter: PageFilter.original,
+        passthrough: true,
+        detectCrop: false,
+      ),
+    );
+    expect(File(outputPath).readAsBytesSync(), sourceBytes);
+    expect(result.cropPoints, Quad.fullFrame);
+    expect(result.processedImagePath, outputPath);
+  });
 }

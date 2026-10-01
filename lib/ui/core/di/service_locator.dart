@@ -16,13 +16,15 @@ import '../../../data/services/local/database_service.dart';
 import '../../../data/services/local/file_storage_service.dart';
 import '../../../data/services/ocr/adapters/native_ocr_provider.dart';
 import '../../../data/services/ocr/ocr_platform_channel.dart';
+import '../../../data/services/remote/bookscanner_api_client.dart';
 import '../../../data/services/scanner/adapters/dart_book_dewarp_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_image_enhancement_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_page_detection_provider.dart';
-import '../../../data/services/scanner/adapters/camera_package_capture_provider.dart';
+import '../../../data/services/scanner/adapters/cunning_document_scanner_capture_provider.dart';
 import '../../../data/services/scanner/vision_platform_channel.dart';
 import '../../../domain/providers/book_dewarp_provider.dart';
 import '../../../domain/providers/capture_provider.dart';
+import '../../../domain/providers/conversion_api.dart';
 import '../../../domain/providers/document_export_provider.dart';
 import '../../../domain/providers/image_enhancement_provider.dart';
 import '../../../domain/providers/ocr_provider.dart';
@@ -38,6 +40,7 @@ import '../../../domain/repositories/working_session_path_allocator.dart';
 import '../../../domain/use_cases/capture_page_use_case.dart';
 import '../../../domain/use_cases/detect_page_anomalies_use_case.dart';
 import '../../../domain/use_cases/export_images_use_case.dart';
+import '../../../domain/use_cases/export_on_server_use_case.dart';
 import '../../../domain/use_cases/export_page_inputs_use_case.dart';
 import '../../../domain/use_cases/export_project_use_case.dart';
 import '../../../domain/use_cases/load_page_source_use_case.dart';
@@ -137,6 +140,15 @@ Future<void> setupServiceLocator() async {
       pageInputLoader: locator<LoadProjectPageInputsUseCase>(),
     ),
   );
+  locator.registerLazySingleton<ConversionApi>(BookScannerApiClient.new);
+  locator.registerFactory<ExportOnServerUseCase>(
+    () => ExportOnServerUseCase(
+      api: locator<ConversionApi>(),
+      pageLoader: locator<LoadProjectPageInputsUseCase>(),
+      exportProvider: locator<DocumentExportProvider>(),
+      paths: locator<AppPaths>(),
+    ),
+  );
   locator.registerFactory<ExportImagesUseCase>(
     () => ExportImagesUseCase(
       pageRepository: locator<PageRepository>(),
@@ -170,13 +182,13 @@ Future<void> setupServiceLocator() async {
   );
 }
 
-/// Documents and books both use the official `camera` package so the
-/// capture screen can show a live preview, edge overlay, and auto-capture
-/// (SPEC 5.1, 5.2, 9.6). `cunning_document_scanner` remains in the tree as
-/// a fallback adapter, not the primary UI.
+/// Primary capture uses `cunning_document_scanner` (ML Kit Document Scanner
+/// on Android, VisionKit on iOS) so we can compare its crop and shadow
+/// handling with the in-app camera. The `camera` adapter remains in the
+/// tree but is not registered.
 CaptureProvider _selectCaptureProvider() {
   if (Platform.isAndroid || Platform.isIOS) {
-    return CameraPackageCaptureProvider(paths: locator<AppPaths>());
+    return CunningDocumentScannerCaptureProvider(paths: locator<AppPaths>());
   }
   throw UnsupportedError(
     'No capture provider is registered for this platform. '

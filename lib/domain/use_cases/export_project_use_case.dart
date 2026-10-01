@@ -50,6 +50,7 @@ class ExportProjectUseCase {
     PdfExportOptions? pdfOptions,
     MarkdownExportOptions? markdownOptions,
     DocxExportOptions? docxOptions,
+    EpubExportOptions? epubOptions,
   }) async {
     var job = ExportJob(
       id: _uuid.v4(),
@@ -70,6 +71,7 @@ class ExportProjectUseCase {
         ExportFormat.imagePdf || ExportFormat.searchablePdf => 'pdf',
         ExportFormat.markdown => 'md',
         ExportFormat.docx => 'docx',
+        ExportFormat.epub => 'epub',
       };
       final outputPath = _paths.exportPathFor(job.id, extension);
 
@@ -107,6 +109,12 @@ class ExportProjectUseCase {
           output = await _exportProvider.exportDocx(
             input,
             docxOptions ?? const DocxExportOptions(),
+            onProgress: (p) => _updateProgress(job, p),
+          );
+        case ExportFormat.epub:
+          output = await _exportProvider.exportEpub(
+            input,
+            epubOptions ?? const EpubExportOptions(),
             onProgress: (p) => _updateProgress(job, p),
           );
       }

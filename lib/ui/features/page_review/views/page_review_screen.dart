@@ -3,8 +3,10 @@ import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../data/services/local/app_paths.dart';
@@ -18,8 +20,10 @@ import '../../../../domain/use_cases/detect_page_anomalies_use_case.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../../routing/app_router.dart';
 import '../../../core/di/service_locator.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/text_input_dialog.dart';
 import '../view_models/page_review_view_model.dart';
+import 'export_convert_sheet.dart';
 
 class PageReviewScreen extends StatefulWidget {
   const PageReviewScreen({super.key, required this.projectId, this.viewModel});
@@ -109,6 +113,7 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
           ),
           projectId: widget.projectId,
           sequence: sequence,
+          keepOriginal: true,
         );
         sequence++;
       }
@@ -142,6 +147,7 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
           ),
           projectId: widget.projectId,
           sequence: sequence,
+          keepOriginal: true,
         );
         sequence++;
       }
@@ -150,39 +156,61 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
     }
   }
 
+  Future<void> _openExportSheet() async {
+    if (_viewModel.pages.isEmpty) return;
+    final launch = await showModalBottomSheet<ExportLaunch>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF10241C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) => Theme(
+        data: AppTheme.homeShell(),
+        child: const ExportConvertSheet(),
+      ),
+    );
+    if (launch == null || !mounted) return;
+    context.push(AppRoutes.exportFor(widget.projectId), extra: launch);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.reviewTitle),
-        actions: [
-          ListenableBuilder(
-            listenable: _viewModel,
-            builder: (context, _) => IconButton(
-              key: const ValueKey('reviewToggleGridButton'),
-              icon: Icon(
-                _viewModel.gridView
-                    ? Icons.view_list_outlined
-                    : Icons.grid_view_outlined,
-              ),
-              tooltip: l10n.toggleGridView,
-              onPressed: _viewModel.toggleGridView,
-            ),
-          ),
-          ListenableBuilder(
-            listenable: _viewModel,
-            builder: (context, _) => IconButton(
-              key: const ValueKey('reviewExportButton'),
-              icon: const Icon(Icons.ios_share_outlined),
-              tooltip: l10n.exportTitle,
-              onPressed: _viewModel.pages.isEmpty
-                  ? null
-                  : () => context.push(AppRoutes.exportFor(widget.projectId)),
-            ),
-          ),
-        ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: AppTheme.homeBackground,
+        systemNavigationBarIconBrightness: Brightness.light,
       ),
+      child: Theme(
+        data: AppTheme.homeShell(),
+        child: Scaffold(
+          backgroundColor: AppTheme.homeBackground,
+          appBar: AppBar(
+            title: Text(l10n.reviewTitle),
+            actions: [
+              ListenableBuilder(
+                listenable: _viewModel,
+                builder: (context, _) => IconButton(
+                  key: const ValueKey('reviewToggleGridButton'),
+                  tooltip: l10n.toggleGridView,
+                  style: IconButton.styleFrom(
+                    backgroundColor: AppTheme.homeIconWell,
+                    foregroundColor: AppTheme.accent,
+                  ),
+                  icon: Icon(
+                    _viewModel.gridView
+                        ? LucideIcons.layoutGrid
+                        : LucideIcons.list,
+                  ),
+                  onPressed: _viewModel.toggleGridView,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
       body: Stack(
         children: [
           ListenableBuilder(
@@ -252,12 +280,12 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
               if (_viewModel.gridView) {
                 return GridView.builder(
                   key: const ValueKey('pageReviewGrid'),
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    childAspectRatio: 0.75,
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.72,
                   ),
                   itemCount: _viewModel.pages.length,
                   itemBuilder: (context, index) {
@@ -290,7 +318,8 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
 
               return ReorderableListView.builder(
                 key: const ValueKey('pageReviewList'),
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                buildDefaultDragHandles: false,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 itemCount: _viewModel.pages.length,
                 onReorder: _viewModel.reorder,
                 itemBuilder: (context, index) {
@@ -325,83 +354,183 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
               );
             },
           ),
-          if (_importing)
-            const ColoredBox(
-              color: Color(0x66FFFFFF),
-              child: Center(
-                child: CircularProgressIndicator(
-                  key: ValueKey('reviewImporting'),
+          ListenableBuilder(
+            listenable: _viewModel,
+            builder: (context, _) {
+              if (!_importing) return const SizedBox.shrink();
+              return const ColoredBox(
+                color: Color(0x8804100C),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    key: ValueKey('reviewImporting'),
+                    color: AppTheme.accent,
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
+          ),
         ],
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           child: ListenableBuilder(
             listenable: _viewModel,
-            builder: (context, _) => _viewModel.selectedIds.isEmpty
-                ? Row(
+            builder: (context, _) {
+              final selected = _viewModel.selectedIds.length;
+              final canExport = _viewModel.pages.isNotEmpty && !_importing;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selected == 0
+                                ? l10n.pagesScanned(_viewModel.pages.length)
+                                : l10n.selectedCount(selected),
+                            style: const TextStyle(
+                              fontFamily: AppTheme.fontFamily,
+                              color: AppTheme.homeMuted,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (selected > 0) ...[
+                          IconButton(
+                            key: const ValueKey('reviewSelectionCancel'),
+                            onPressed: _viewModel.clearSelection,
+                            icon: const Icon(
+                              LucideIcons.x,
+                              color: AppTheme.homeIcon,
+                              size: 18,
+                            ),
+                          ),
+                          IconButton(
+                            key: const ValueKey('reviewSelectionRotate'),
+                            onPressed: _viewModel.rotateSelected,
+                            icon: const Icon(
+                              LucideIcons.rotateCw,
+                              color: AppTheme.homeIcon,
+                              size: 18,
+                            ),
+                          ),
+                          IconButton(
+                            key: const ValueKey('reviewSelectionDuplicate'),
+                            onPressed: _viewModel.duplicateSelected,
+                            icon: const Icon(
+                              LucideIcons.copy,
+                              color: AppTheme.homeIcon,
+                              size: 18,
+                            ),
+                          ),
+                          IconButton(
+                            key: const ValueKey('reviewSelectionDelete'),
+                            onPressed: _viewModel.deleteSelected,
+                            icon: const Icon(
+                              LucideIcons.trash2,
+                              color: Color(0xFFE05353),
+                              size: 18,
+                            ),
+                          ),
+                        ] else
+                          TextButton.icon(
+                            key: const ValueKey('reviewPageOrderButton'),
+                            onPressed: _viewModel.gridView
+                                ? _viewModel.toggleGridView
+                                : null,
+                            icon: const Icon(
+                              LucideIcons.arrowUpDown,
+                              size: 16,
+                              color: AppTheme.accent,
+                            ),
+                            label: Text(
+                              l10n.reviewPageOrder,
+                              style: const TextStyle(
+                                fontFamily: AppTheme.fontFamily,
+                                color: AppTheme.accent,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Row(
                     children: [
                       Expanded(
                         child: _ReviewAddAction(
                           key: const ValueKey('reviewAddCamera'),
-                          icon: Icons.photo_camera_outlined,
+                          icon: LucideIcons.camera,
                           label: l10n.reviewAddCamera,
                           onPressed: _importing ? null : _openCamera,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: _ReviewAddAction(
                           key: const ValueKey('reviewAddGallery'),
-                          icon: Icons.photo_library_outlined,
+                          icon: LucideIcons.image,
                           label: l10n.reviewAddGallery,
                           onPressed: _importing ? null : _importFromGallery,
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: _ReviewAddAction(
                           key: const ValueKey('reviewAddFromFiles'),
-                          icon: Icons.insert_drive_file_outlined,
-                          label: l10n.homeImportFile,
+                          icon: LucideIcons.fileUp,
+                          label: l10n.reviewAddFromFiles,
                           onPressed: _importing ? null : _importFromFiles,
                         ),
                       ),
                     ],
-                  )
-                : Row(
-                    children: [
-                      IconButton(
-                        key: const ValueKey('reviewSelectionCancel'),
-                        onPressed: _viewModel.clearSelection,
-                        icon: const Icon(Icons.close),
-                      ),
-                      Expanded(
-                        child: Text(
-                          l10n.selectedCount(_viewModel.selectedIds.length),
+                  ),
+                  const SizedBox(height: 10),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(28),
+                      gradient: canExport
+                          ? const LinearGradient(
+                              colors: [AppTheme.accent, AppTheme.accentDeep],
+                            )
+                          : null,
+                      color: canExport ? null : AppTheme.homeCard,
+                    ),
+                    child: FilledButton.icon(
+                      key: const ValueKey('reviewExportButton'),
+                      onPressed: canExport ? _openExportSheet : null,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        disabledBackgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        foregroundColor: const Color(0xFF04140C),
+                        disabledForegroundColor: AppTheme.homeMuted,
+                        minimumSize: const Size.fromHeight(52),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
                         ),
                       ),
-                      IconButton(
-                        key: const ValueKey('reviewSelectionRotate'),
-                        onPressed: _viewModel.rotateSelected,
-                        icon: const Icon(Icons.rotate_right),
+                      icon: const Icon(LucideIcons.share, size: 18),
+                      label: Text(
+                        l10n.reviewExportConvert,
+                        style: const TextStyle(
+                          fontFamily: AppTheme.fontFamily,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
                       ),
-                      IconButton(
-                        key: const ValueKey('reviewSelectionDuplicate'),
-                        onPressed: _viewModel.duplicateSelected,
-                        icon: const Icon(Icons.copy),
-                      ),
-                      IconButton(
-                        key: const ValueKey('reviewSelectionDelete'),
-                        onPressed: _viewModel.deleteSelected,
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                    ],
+                    ),
                   ),
+                ],
+              );
+            },
           ),
+        ),
+      ),
         ),
       ),
     );
@@ -423,29 +552,34 @@ class _ReviewAddAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onPressed != null;
-    final color = enabled
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).disabledColor;
+    final color = enabled ? AppTheme.accent : AppTheme.homeMuted;
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      color: AppTheme.homeCard,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onPressed,
         borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.homeHairline),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: color, size: 24),
+              Icon(icon, color: color, size: 20),
               const SizedBox(height: 4),
               Text(
                 label,
-                maxLines: 1,
+                maxLines: 2,
+                textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: color,
+                  fontFamily: AppTheme.fontFamily,
+                  color: enabled ? AppTheme.homeText : AppTheme.homeMuted,
                   fontSize: 11,
+                  height: 1.15,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -455,6 +589,93 @@ class _ReviewAddAction extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PageMenuButton extends StatelessWidget {
+  const _PageMenuButton({
+    required this.page,
+    required this.l10n,
+    required this.onCrop,
+    required this.onAdjust,
+    required this.onOcr,
+    required this.onResplit,
+    required this.onPageLabel,
+    required this.onRotate,
+    required this.onDuplicate,
+    required this.onRevert,
+    required this.onDelete,
+    required this.onRescan,
+    this.lightIcon = false,
+  });
+
+  final ScanPage page;
+  final AppLocalizations l10n;
+  final VoidCallback onCrop;
+  final VoidCallback onAdjust;
+  final VoidCallback onOcr;
+  final VoidCallback onResplit;
+  final VoidCallback onPageLabel;
+  final VoidCallback onRotate;
+  final VoidCallback onDuplicate;
+  final VoidCallback onRevert;
+  final VoidCallback onDelete;
+  final VoidCallback onRescan;
+  final bool lightIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      key: ValueKey('pageMenu-${page.id}'),
+      padding: EdgeInsets.zero,
+      icon: Icon(
+        LucideIcons.ellipsisVertical,
+        color: lightIcon ? Colors.white : AppTheme.homeIcon,
+        size: 18,
+      ),
+      onSelected: (action) {
+        switch (action) {
+          case 'crop':
+            onCrop();
+          case 'adjust':
+            onAdjust();
+          case 'ocr':
+            onOcr();
+          case 'resplit':
+            onResplit();
+          case 'label':
+            onPageLabel();
+          case 'rotate':
+            onRotate();
+          case 'duplicate':
+            onDuplicate();
+          case 'revert':
+            onRevert();
+          case 'delete':
+            onDelete();
+          case 'rescan':
+            onRescan();
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(value: 'crop', child: Text(l10n.cropAction)),
+        PopupMenuItem(value: 'adjust', child: Text(l10n.adjustAction)),
+        PopupMenuItem(value: 'ocr', child: Text(l10n.ocrAction)),
+        if (page.spreadSiblingPageId != null)
+          PopupMenuItem(value: 'resplit', child: Text(l10n.spreadSplitAction)),
+        PopupMenuItem(value: 'label', child: Text(l10n.pageLabelAction)),
+        PopupMenuItem(value: 'rotate', child: Text(l10n.rotate)),
+        PopupMenuItem(value: 'duplicate', child: Text(l10n.duplicate)),
+        PopupMenuItem(value: 'revert', child: Text(l10n.revertToOriginal)),
+        PopupMenuItem(value: 'rescan', child: Text(l10n.rescan)),
+        PopupMenuItem(value: 'delete', child: Text(l10n.delete)),
+      ],
+    );
+  }
+}
+
+String _formatBytes(int bytes) {
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).round()} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 class _PageTile extends StatelessWidget {
@@ -506,73 +727,107 @@ class _PageTile extends StatelessWidget {
     final thumb =
         page.processedImagePath ?? page.thumbnailPath ?? page.originalImagePath;
     final hasThumb = File(thumb).existsSync();
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      color: selected ? Theme.of(context).colorScheme.primaryContainer : null,
-      child: ListTile(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        leading: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (selectionMode)
-              Checkbox(value: selected, onChanged: (_) => onTap?.call()),
-            SizedBox(
-              width: 48,
-              height: 64,
-              child: RotatedBox(
-                quarterTurns: page.rotationDegrees ~/ 90,
-                child: hasThumb
-                    ? Image.file(File(thumb), fit: BoxFit.cover)
-                    : const ColoredBox(color: Colors.black12),
+    final sizeLabel = hasThumb ? _formatBytes(File(thumb).lengthSync()) : null;
+    final title = page.logicalPageLabel ?? l10n.reviewPageLabel(index + 1);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppTheme.homeCard,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? AppTheme.accent : AppTheme.homeHairline,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
+              child: Row(
+                children: [
+                  if (selectionMode)
+                    Checkbox(
+                      value: selected,
+                      activeColor: AppTheme.accent,
+                      onChanged: (_) => onTap?.call(),
+                    ),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 48,
+                      height: 64,
+                      child: hasThumb
+                          ? _OpaquePageImage(
+                              path: thumb,
+                              rotationDegrees: page.rotationDegrees,
+                            )
+                          : const ColoredBox(color: Color(0xFF0B1612)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: AppTheme.fontFamily,
+                            color: AppTheme.homeText,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (sizeLabel != null)
+                          Text(
+                            sizeLabel,
+                            style: const TextStyle(
+                              fontFamily: AppTheme.fontFamily,
+                              color: AppTheme.homeMuted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ?_buildWarnings(context),
+                      ],
+                    ),
+                  ),
+                  _PageMenuButton(
+                    page: page,
+                    l10n: l10n,
+                    onCrop: onCrop,
+                    onAdjust: onAdjust,
+                    onOcr: onOcr,
+                    onResplit: onResplit,
+                    onPageLabel: onPageLabel,
+                    onRotate: onRotate,
+                    onDuplicate: onDuplicate,
+                    onRevert: onRevert,
+                    onDelete: onDelete,
+                    onRescan: onRescan,
+                  ),
+                  ReorderableDragStartListener(
+                    index: index,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Icon(
+                        LucideIcons.gripVertical,
+                        color: AppTheme.homeMuted,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
-        title: Text(page.logicalPageLabel ?? '#${index + 1}'),
-        subtitle: _buildWarnings(context),
-        trailing: PopupMenuButton<String>(
-          key: ValueKey('pageMenu-${page.id}'),
-          onSelected: (action) {
-            switch (action) {
-              case 'crop':
-                onCrop();
-              case 'adjust':
-                onAdjust();
-              case 'ocr':
-                onOcr();
-              case 'resplit':
-                onResplit();
-              case 'label':
-                onPageLabel();
-              case 'rotate':
-                onRotate();
-              case 'duplicate':
-                onDuplicate();
-              case 'revert':
-                onRevert();
-              case 'delete':
-                onDelete();
-              case 'rescan':
-                onRescan();
-            }
-          },
-          itemBuilder: (context) => [
-            PopupMenuItem(value: 'crop', child: Text(l10n.cropAction)),
-            PopupMenuItem(value: 'adjust', child: Text(l10n.adjustAction)),
-            PopupMenuItem(value: 'ocr', child: Text(l10n.ocrAction)),
-            if (page.spreadSiblingPageId != null)
-              PopupMenuItem(
-                value: 'resplit',
-                child: Text(l10n.spreadSplitAction),
-              ),
-            PopupMenuItem(value: 'label', child: Text(l10n.pageLabelAction)),
-            PopupMenuItem(value: 'rotate', child: Text(l10n.rotate)),
-            PopupMenuItem(value: 'duplicate', child: Text(l10n.duplicate)),
-            PopupMenuItem(value: 'revert', child: Text(l10n.revertToOriginal)),
-            PopupMenuItem(value: 'rescan', child: Text(l10n.rescan)),
-            PopupMenuItem(value: 'delete', child: Text(l10n.delete)),
-          ],
+          ),
         ),
       ),
     );
@@ -660,108 +915,106 @@ class _PageGridTile extends StatelessWidget {
     final thumb =
         page.processedImagePath ?? page.thumbnailPath ?? page.originalImagePath;
     final hasThumb = File(thumb).existsSync();
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      shape: selected
-          ? RoundedRectangleBorder(
-              side: BorderSide(
-                color: Theme.of(context).colorScheme.primary,
-                width: 3,
-              ),
-              borderRadius: BorderRadius.circular(4),
-            )
-          : null,
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            RotatedBox(
-              quarterTurns: page.rotationDegrees ~/ 90,
-              child: hasThumb
-                  ? Image.file(File(thumb), fit: BoxFit.cover)
-                  : const ColoredBox(color: Colors.black12),
-            ),
-            Positioned(
-              left: 4,
-              bottom: 4,
-              child: Text(
-                page.logicalPageLabel ?? '#${index + 1}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  shadows: [Shadow(blurRadius: 4, color: Colors.black)],
-                ),
-              ),
-            ),
-            if (selectionMode)
-              Positioned(
-                left: 0,
-                top: 0,
-                child: Checkbox(value: selected, onChanged: (_) => onTap?.call()),
-              ),
-            Positioned(
-              right: 0,
-              top: 0,
-              child: PopupMenuButton<String>(
-                key: ValueKey('pageMenu-${page.id}'),
-                icon: const Icon(Icons.more_vert, color: Colors.white),
-                onSelected: (action) {
-                  switch (action) {
-                    case 'crop':
-                      onCrop();
-                    case 'adjust':
-                      onAdjust();
-                    case 'ocr':
-                      onOcr();
-                    case 'resplit':
-                      onResplit();
-                    case 'label':
-                      onPageLabel();
-                    case 'rotate':
-                      onRotate();
-                    case 'duplicate':
-                      onDuplicate();
-                    case 'revert':
-                      onRevert();
-                    case 'delete':
-                      onDelete();
-                    case 'rescan':
-                      onRescan();
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(value: 'crop', child: Text(l10n.cropAction)),
-                  PopupMenuItem(
-                    value: 'adjust',
-                    child: Text(l10n.adjustAction),
-                  ),
-                  PopupMenuItem(value: 'ocr', child: Text(l10n.ocrAction)),
-                  if (page.spreadSiblingPageId != null)
-                    PopupMenuItem(
-                      value: 'resplit',
-                      child: Text(l10n.spreadSplitAction),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: selected ? AppTheme.accent : AppTheme.homeHairline,
+          width: selected ? 2 : 1,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(17),
+        child: Material(
+          color: const Color(0xFF12241C),
+          surfaceTintColor: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                hasThumb
+                    ? _OpaquePageImage(
+                        path: thumb,
+                        rotationDegrees: page.rotationDegrees,
+                      )
+                    : const ColoredBox(color: Color(0xFF0B1612)),
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
                     ),
-                  PopupMenuItem(
-                    value: 'label',
-                    child: Text(l10n.pageLabelAction),
+                    decoration: BoxDecoration(
+                      color: const Color(0xCC04140C),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      page.logicalPageLabel ?? '${index + 1}',
+                      style: const TextStyle(
+                        fontFamily: AppTheme.fontFamily,
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                  PopupMenuItem(value: 'rotate', child: Text(l10n.rotate)),
-                  PopupMenuItem(
-                    value: 'duplicate',
-                    child: Text(l10n.duplicate),
+                ),
+                if (selectionMode)
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: selected ? AppTheme.accent : const Color(0x6604140C),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: selected ? AppTheme.accent : Colors.white70,
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(3),
+                        child: Icon(
+                          LucideIcons.check,
+                          size: 14,
+                          color: selected
+                              ? const Color(0xFF04140C)
+                              : Colors.transparent,
+                        ),
+                      ),
+                    ),
                   ),
-                  PopupMenuItem(
-                    value: 'revert',
-                    child: Text(l10n.revertToOriginal),
+                Positioned(
+                  right: 4,
+                  top: 4,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xCC10241C),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: _PageMenuButton(
+                      page: page,
+                      l10n: l10n,
+                      lightIcon: true,
+                      onCrop: onCrop,
+                      onAdjust: onAdjust,
+                      onOcr: onOcr,
+                      onResplit: onResplit,
+                      onPageLabel: onPageLabel,
+                      onRotate: onRotate,
+                      onDuplicate: onDuplicate,
+                      onRevert: onRevert,
+                      onDelete: onDelete,
+                      onRescan: onRescan,
+                    ),
                   ),
-                  PopupMenuItem(value: 'rescan', child: Text(l10n.rescan)),
-                  PopupMenuItem(value: 'delete', child: Text(l10n.delete)),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -870,12 +1123,47 @@ class _PagePreviewScreen extends StatelessWidget {
           minScale: 1,
           maxScale: 4,
           child: hasImage
-              ? Image.file(File(imagePath))
+              ? _OpaquePageImage(
+                  path: imagePath,
+                  rotationDegrees: page.rotationDegrees,
+                  fit: BoxFit.contain,
+                )
               : const Icon(
                   Icons.broken_image_outlined,
                   color: Colors.white38,
                   size: 64,
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Scanned pages, especially imported PNGs, can carry an alpha channel.
+/// Drawing them over white keeps the paper opaque on the dark review theme.
+class _OpaquePageImage extends StatelessWidget {
+  const _OpaquePageImage({
+    required this.path,
+    required this.rotationDegrees,
+    this.fit = BoxFit.cover,
+  });
+
+  final String path;
+  final int rotationDegrees;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    return RotatedBox(
+      quarterTurns: rotationDegrees ~/ 90,
+      child: ColoredBox(
+        color: Colors.white,
+        child: Image.file(
+          File(path),
+          fit: fit,
+          gaplessPlayback: true,
+          color: Colors.white,
+          colorBlendMode: BlendMode.dstOver,
         ),
       ),
     );

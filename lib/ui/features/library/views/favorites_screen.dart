@@ -64,7 +64,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Theme(
-      data: AppTheme.light(),
+      data: AppTheme.homeShell(),
       child: Scaffold(
         appBar: AppBar(title: Text(l10n.favorites)),
         body: ListenableBuilder(

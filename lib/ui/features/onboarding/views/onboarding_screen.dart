@@ -90,13 +90,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.dark,
+        systemNavigationBarIconBrightness: Brightness.light,
         systemNavigationBarContrastEnforced: false,
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
       ),
       child: Theme(
-        data: AppTheme.light(),
+        data: AppTheme.homeShell(),
         child: DecoratedBox(
           decoration: const BoxDecoration(gradient: AppTheme.homeGradient),
           child: Scaffold(

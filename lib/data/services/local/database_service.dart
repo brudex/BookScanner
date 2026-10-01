@@ -60,7 +60,7 @@ class DatabaseService {
       notes TEXT,
       starting_page_number INTEGER NOT NULL DEFAULT 1,
       page_order_direction TEXT NOT NULL DEFAULT 'leftToRight',
-      book_scan_mode TEXT NOT NULL DEFAULT 'twoPageSpread',
+      book_scan_mode TEXT NOT NULL DEFAULT 'singlePage',
       page_order TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
