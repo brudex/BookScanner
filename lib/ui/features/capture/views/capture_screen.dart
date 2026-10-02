@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../../domain/models/capture_models.dart';
 import '../../../../domain/models/geometry.dart';
 import '../../../../domain/models/project.dart';
+import '../../../../domain/models/scan_page.dart';
 import '../../../../domain/providers/capture_provider.dart';
 import '../../../../domain/repositories/page_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
@@ -59,6 +60,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   late final CaptureViewModel _viewModel;
   bool _showGrid = false;
   bool _leavingForReview = false;
+  bool _finishingBook = false;
 
   @override
   void initState() {
@@ -170,15 +172,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
         ),
       );
     }
+    final isBook = _viewModel.projectType == ProjectType.book;
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (_viewModel.resultPreviewPath != null)
+        if (!isBook && _viewModel.resultPreviewPath != null)
           _ProcessedResultPreview(path: _viewModel.resultPreviewPath!)
-        else if (_viewModel.frozenPreviewPath != null)
+        else if (!isBook && _viewModel.frozenPreviewPath != null)
           _FrozenCapturePreview(
             path: _viewModel.frozenPreviewPath!,
-            zoomIntoGuide: _viewModel.projectType != ProjectType.book,
+            zoomIntoGuide: true,
           )
         else
           _LivePreview(
@@ -190,77 +193,122 @@ class _CaptureScreenState extends State<CaptureScreen> {
             showGrid: _showGrid,
             onTapFocus: _viewModel.setFocusAndExposurePoint,
           ),
-        if (_viewModel.capturing &&
+        if (!isBook &&
+            _viewModel.capturing &&
             _viewModel.frozenPreviewPath == null &&
             _viewModel.resultPreviewPath == null)
           _viewModel.captureFromAuto
               ? const _AutoCaptureFlash()
               : const _CaptureShutterScrim(),
-        SafeArea(
-          child: Column(
-            children: [
-              _CaptureTopBar(
-                l10n: l10n,
-                flashMode: _viewModel.flashMode,
-                autoCaptureEnabled: _viewModel.autoCaptureEnabled,
-                capturing: _viewModel.capturing,
-                showGrid: _showGrid,
-                onBack: () async {
-                  if (_viewModel.pageCount > 0) {
+        if (isBook)
+          _BookCaptureOverlay(
+            viewModel: _viewModel,
+            l10n: l10n,
+            showGrid: _showGrid,
+            finishing: _finishingBook,
+            onBack: () => _onCaptureBack(context),
+            onToggleGrid: () => setState(() => _showGrid = !_showGrid),
+            onFlash: _viewModel.cycleFlashMode,
+            onToggleAuto: _viewModel.toggleAutoCapture,
+            onShutter: () => _viewModel.captureManually(),
+            onImport: _importFromGallery,
+            onDone: () => _finishBookSession(context),
+            onOpenPages: () => _openBookPagesSheet(context, l10n),
+          )
+        else
+          SafeArea(
+            child: Column(
+              children: [
+                _CaptureTopBar(
+                  l10n: l10n,
+                  flashMode: _viewModel.flashMode,
+                  autoCaptureEnabled: _viewModel.autoCaptureEnabled,
+                  capturing: _viewModel.capturing,
+                  showGrid: _showGrid,
+                  onBack: () => _onCaptureBack(context),
+                  onToggleGrid: () => setState(() => _showGrid = !_showGrid),
+                  onFlash: _viewModel.cycleFlashMode,
+                  onToggleAuto: _viewModel.toggleAutoCapture,
+                ),
+                _WarningBanner(
+                  analysis: _viewModel.latestAnalysis,
+                  l10n: l10n,
+                  shutterHint: _viewModel.shutterHint,
+                ),
+                const Spacer(),
+                _CaptureControls(
+                  pageCount: _viewModel.pageCount,
+                  capturing: _viewModel.capturing,
+                  lastPagePreviewPath: _viewModel.lastPagePreviewPath,
+                  isBook: false,
+                  isIdScan: _viewModel.isIdScan,
+                  l10n: l10n,
+                  onShutter: () => _viewModel.captureManually(),
+                  onImport: _importFromGallery,
+                  onDone: () async {
+                    if (_viewModel.pageCount == 0) return;
                     await _viewModel.closeSession();
                     if (!mounted) return;
-                    await discardUnsavedCapture(widget.projectId);
-                    if (!mounted) return;
-                    this.context.go(AppRoutes.library);
-                    return;
-                  }
-                  if (!mounted) return;
-                  this.context.pop();
-                },
-                onToggleGrid: () => setState(() => _showGrid = !_showGrid),
-                onFlash: _viewModel.cycleFlashMode,
-                onToggleAuto: _viewModel.toggleAutoCapture,
-              ),
-              _WarningBanner(
-                analysis: _viewModel.latestAnalysis,
-                l10n: l10n,
-                shutterHint: _viewModel.shutterHint,
-              ),
-              const Spacer(),
-              _CaptureControls(
-                pageCount: _viewModel.pageCount,
-                capturing: _viewModel.capturing,
-                lastPagePreviewPath: _viewModel.lastPagePreviewPath,
-                isBook: _viewModel.projectType == ProjectType.book,
-                isIdScan: _viewModel.isIdScan,
-                l10n: l10n,
-                onShutter: () => _viewModel.captureManually(),
-                onImport: _importFromGallery,
-                onDone: () async {
-                  if (_viewModel.pageCount == 0) return;
-                  await _viewModel.closeSession();
-                  if (!mounted) return;
-                  // Books skip the post-capture crop/filter walk and open
-                  // the existing Review pages screen. Documents still crop
-                  // then filter page by page.
-                  if (_viewModel.projectType == ProjectType.book) {
+                    final pageId = await _viewModel.firstPageIdOrdered();
+                    if (!mounted || pageId == null) return;
                     this.context.pushReplacement(
-                      AppRoutes.pageReviewFor(widget.projectId),
+                      AppRoutes.cropCorrectionFor(widget.projectId, pageId),
+                      extra: CropFlowMode.postCapture,
                     );
-                    return;
-                  }
-                  final pageId = await _viewModel.firstPageIdOrdered();
-                  if (!mounted || pageId == null) return;
-                  this.context.pushReplacement(
-                    AppRoutes.cropCorrectionFor(widget.projectId, pageId),
-                    extra: CropFlowMode.postCapture,
-                  );
-                },
-              ),
-            ],
+                  },
+                ),
+              ],
+            ),
           ),
-        ),
       ],
+    );
+  }
+
+  Future<void> _onCaptureBack(BuildContext context) async {
+    if (_viewModel.pageCount > 0) {
+      await _viewModel.closeSession();
+      if (!mounted) return;
+      await discardUnsavedCapture(widget.projectId);
+      if (!mounted) return;
+      this.context.go(AppRoutes.library);
+      return;
+    }
+    if (!mounted) return;
+    this.context.pop();
+  }
+
+  Future<void> _finishBookSession(BuildContext context) async {
+    if (_viewModel.pageCount == 0 || _finishingBook) return;
+    setState(() => _finishingBook = true);
+    try {
+      await _viewModel.waitForBookEnhancement();
+      await _viewModel.closeSession();
+      if (!mounted) return;
+      this.context.pushReplacement(AppRoutes.pageReviewFor(widget.projectId));
+    } finally {
+      if (mounted) setState(() => _finishingBook = false);
+    }
+  }
+
+  Future<void> _openBookPagesSheet(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    if (_viewModel.sessionPages.isEmpty) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTheme.homeBackground,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return ListenableBuilder(
+          listenable: _viewModel,
+          builder: (context, _) => _BookSessionPagesSheet(
+            pages: _viewModel.sessionPages,
+            l10n: l10n,
+            onClose: () => Navigator.of(sheetContext).pop(),
+          ),
+        );
+      },
     );
   }
 
@@ -1108,4 +1156,742 @@ class _ContinueCaretPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ContinueCaretPainter oldDelegate) =>
       oldDelegate.color != color;
+}
+
+/// Continuous book-scan chrome: live camera stays primary; pages enhance
+/// in the background while the shutter stays free for the next page.
+class _BookCaptureOverlay extends StatelessWidget {
+  const _BookCaptureOverlay({
+    required this.viewModel,
+    required this.l10n,
+    required this.showGrid,
+    required this.finishing,
+    required this.onBack,
+    required this.onToggleGrid,
+    required this.onFlash,
+    required this.onToggleAuto,
+    required this.onShutter,
+    required this.onImport,
+    required this.onDone,
+    required this.onOpenPages,
+  });
+
+  final CaptureViewModel viewModel;
+  final AppLocalizations l10n;
+  final bool showGrid;
+  final bool finishing;
+  final VoidCallback onBack;
+  final VoidCallback onToggleGrid;
+  final VoidCallback onFlash;
+  final VoidCallback onToggleAuto;
+  final VoidCallback onShutter;
+  final VoidCallback onImport;
+  final VoidCallback onDone;
+  final VoidCallback onOpenPages;
+
+  @override
+  Widget build(BuildContext context) {
+    final analysis = viewModel.latestAnalysis;
+    final toastPage = viewModel.captureToastPageNumber;
+    final statusPill = _bookStatusPill(analysis, viewModel.shutterHint, l10n);
+
+    return SafeArea(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Column(
+            children: [
+              _BookTopBar(
+                title: l10n.bookScanTitle,
+                flashMode: viewModel.flashMode,
+                capturing: viewModel.capturing || finishing,
+                showGrid: showGrid,
+                l10n: l10n,
+                onBack: onBack,
+                onToggleGrid: onToggleGrid,
+                onFlash: onFlash,
+              ),
+              const Spacer(),
+              if (statusPill != null && toastPage == null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _BookStatusPill(label: statusPill),
+                ),
+              _BookBottomBar(
+                pages: viewModel.sessionPages,
+                pageCount: viewModel.pageCount,
+                capturing: viewModel.capturing,
+                finishing: finishing,
+                autoCaptureEnabled: viewModel.autoCaptureEnabled,
+                autoCaptureProgress: viewModel.autoCaptureProgress,
+                autoCaptureSecondsRemaining:
+                    viewModel.autoCaptureSecondsRemaining,
+                l10n: l10n,
+                onShutter: onShutter,
+                onImport: onImport,
+                onDone: onDone,
+                onToggleAuto: onToggleAuto,
+                onOpenPages: onOpenPages,
+              ),
+            ],
+          ),
+          if (toastPage != null)
+            Positioned(
+              top: 64,
+              left: 20,
+              right: 20,
+              child: _BookCaptureToast(
+                message: l10n.bookPageCapturedProcessing(toastPage),
+              ),
+            ),
+          if (finishing)
+            const ColoredBox(
+              color: Colors.black54,
+              child: Center(
+                child: CircularProgressIndicator(
+                  key: ValueKey('bookFinishingIndicator'),
+                  color: AppTheme.accent,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String? _bookStatusPill(
+    FrameAnalysis? analysis,
+    String? shutterHint,
+    AppLocalizations l10n,
+  ) {
+    if (shutterHint == 'focusing') return l10n.captureFocusing;
+    if (shutterHint == 'holdStill') return l10n.bookHoldSteady;
+    if (analysis != null &&
+        analysis.documentDetected &&
+        analysis.quad != null) {
+      return l10n.bookPageDetected;
+    }
+    if (analysis?.warnings.isNotEmpty == true) {
+      return null;
+    }
+    return l10n.bookHoldSteady;
+  }
+}
+
+class _BookTopBar extends StatelessWidget {
+  const _BookTopBar({
+    required this.title,
+    required this.flashMode,
+    required this.capturing,
+    required this.showGrid,
+    required this.l10n,
+    required this.onBack,
+    required this.onToggleGrid,
+    required this.onFlash,
+  });
+
+  final String title;
+  final FlashMode flashMode;
+  final bool capturing;
+  final bool showGrid;
+  final AppLocalizations l10n;
+  final VoidCallback onBack;
+  final VoidCallback onToggleGrid;
+  final VoidCallback onFlash;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+      child: Row(
+        children: [
+          IconButton(
+            key: const ValueKey('bookScanCloseButton'),
+            onPressed: onBack,
+            icon: const Icon(LucideIcons.x, color: Colors.white, size: 26),
+          ),
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('captureGridButton'),
+            tooltip: l10n.captureGrid,
+            onPressed: onToggleGrid,
+            icon: Icon(
+              showGrid ? LucideIcons.grid2x2 : LucideIcons.grid2x2X,
+              color: Colors.white,
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('captureFlashButton'),
+            onPressed: capturing ? null : onFlash,
+            tooltip: switch (flashMode) {
+              FlashMode.off => l10n.captureFlashOff,
+              FlashMode.on => l10n.captureFlashOn,
+              FlashMode.auto => l10n.captureFlashAuto,
+              FlashMode.torch => l10n.captureTorch,
+            },
+            icon: Icon(switch (flashMode) {
+              FlashMode.off => LucideIcons.zapOff,
+              FlashMode.on => LucideIcons.zap,
+              FlashMode.auto => LucideIcons.sparkles,
+              FlashMode.torch => LucideIcons.flashlight,
+            }, color: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookStatusPill extends StatelessWidget {
+  const _BookStatusPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xCC0C1A14),
+      borderRadius: BorderRadius.circular(22),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Text(
+          label,
+          key: const ValueKey('bookStatusPill'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BookCaptureToast extends StatelessWidget {
+  const _BookCaptureToast({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const ValueKey('bookCaptureToast'),
+      color: AppTheme.accentDeep,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 6,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.circleCheck, color: Colors.white, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BookBottomBar extends StatelessWidget {
+  const _BookBottomBar({
+    required this.pages,
+    required this.pageCount,
+    required this.capturing,
+    required this.finishing,
+    required this.autoCaptureEnabled,
+    required this.autoCaptureProgress,
+    required this.autoCaptureSecondsRemaining,
+    required this.l10n,
+    required this.onShutter,
+    required this.onImport,
+    required this.onDone,
+    required this.onToggleAuto,
+    required this.onOpenPages,
+  });
+
+  final List<ScanPage> pages;
+  final int pageCount;
+  final bool capturing;
+  final bool finishing;
+  final bool autoCaptureEnabled;
+  final double autoCaptureProgress;
+  final int? autoCaptureSecondsRemaining;
+  final AppLocalizations l10n;
+  final VoidCallback onShutter;
+  final VoidCallback onImport;
+  final VoidCallback onDone;
+  final VoidCallback onToggleAuto;
+  final VoidCallback onOpenPages;
+
+  @override
+  Widget build(BuildContext context) {
+    final canDone = pageCount > 0 && !capturing && !finishing;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0x0007140F), Color(0xEE07140F), Color(0xFF07140F)],
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _BookThumbnailStrip(
+                pages: pages,
+                onTap: pageCount > 0 ? onOpenPages : null,
+              ),
+              Expanded(
+                child: Text(
+                  l10n.bookPagesCount(pageCount),
+                  key: const ValueKey('capturePageCount'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              FilledButton(
+                key: const ValueKey('captureDoneButton'),
+                onPressed: canDone ? onDone : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.accent,
+                  disabledBackgroundColor: const Color(0xFF2A3A32),
+                  foregroundColor: const Color(0xFF04140C),
+                  disabledForegroundColor: Colors.white38,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(22),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      l10n.bookScanDone,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(LucideIcons.chevronRight, size: 18),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _BookAutoToggle(
+                    enabled: autoCaptureEnabled,
+                    capturing: capturing || finishing,
+                    l10n: l10n,
+                    onToggle: onToggleAuto,
+                  ),
+                ),
+              ),
+              _BookShutterButton(
+                capturing: capturing || finishing,
+                progress: autoCaptureProgress,
+                secondsRemaining: autoCaptureSecondsRemaining,
+                onPressed: onShutter,
+              ),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    key: const ValueKey('captureImportButton'),
+                    onPressed: capturing || finishing ? null : onImport,
+                    icon: const Icon(LucideIcons.image, color: Colors.white70),
+                    label: Text(
+                      l10n.captureImport,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookThumbnailStrip extends StatelessWidget {
+  const _BookThumbnailStrip({required this.pages, this.onTap});
+
+  final List<ScanPage> pages;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (pages.isEmpty) {
+      return const SizedBox(width: 56, height: 64);
+    }
+    final visible = pages.length > 3 ? pages.sublist(pages.length - 3) : pages;
+    return SizedBox(
+      width: 56.0 + (visible.length - 1) * 18.0,
+      height: 64,
+      child: InkWell(
+        key: const ValueKey('bookThumbnailStrip'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            for (var i = 0; i < visible.length; i++)
+              Positioned(
+                left: i * 18.0,
+                child: _BookThumbBadge(page: visible[i]),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BookThumbBadge extends StatelessWidget {
+  const _BookThumbBadge({required this.page});
+
+  final ScanPage page;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = page.thumbnailPath ?? page.processedImagePath;
+    return SizedBox(
+      width: 48,
+      height: 60,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: 48,
+              height: 60,
+              child: Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) =>
+                    const ColoredBox(color: Colors.white24),
+              ),
+            ),
+          ),
+          Positioned(
+            right: -3,
+            top: -3,
+            child: _BookThumbStatus(status: page.status),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookThumbStatus extends StatelessWidget {
+  const _BookThumbStatus({required this.status});
+
+  final PageStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bg;
+    final Widget child;
+    switch (status) {
+      case PageStatus.processing:
+      case PageStatus.capturing:
+        bg = AppTheme.accentDeep;
+        child = const SizedBox(
+          width: 12,
+          height: 12,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.6,
+            color: Colors.white,
+          ),
+        );
+      case PageStatus.error:
+      case PageStatus.needsRescan:
+        bg = const Color(0xFFE53935);
+        child = const Icon(
+          LucideIcons.triangleAlert,
+          size: 11,
+          color: Colors.white,
+        );
+      case PageStatus.ready:
+        bg = AppTheme.accentDeep;
+        child = const Icon(LucideIcons.check, size: 12, color: Colors.white);
+    }
+    return Container(
+      width: 20,
+      height: 20,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: bg,
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFF07140F), width: 1.5),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _BookShutterButton extends StatelessWidget {
+  const _BookShutterButton({
+    required this.capturing,
+    required this.progress,
+    required this.secondsRemaining,
+    required this.onPressed,
+  });
+
+  final bool capturing;
+  final double progress;
+  final int? secondsRemaining;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 84,
+      height: 84,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (progress > 0)
+            SizedBox(
+              width: 84,
+              height: 84,
+              child: CircularProgressIndicator(
+                value: progress,
+                strokeWidth: 4,
+                color: AppTheme.accent,
+                backgroundColor: Colors.white24,
+              ),
+            )
+          else
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppTheme.accent, width: 3),
+                boxShadow: AppTheme.accentGlow,
+              ),
+            ),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: const ValueKey('shutterButton'),
+              onTap: capturing ? null : onPressed,
+              customBorder: const CircleBorder(),
+              child: Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: capturing ? Colors.white54 : Colors.white,
+                ),
+                alignment: Alignment.center,
+                child: secondsRemaining == null
+                    ? null
+                    : Text(
+                        '$secondsRemaining',
+                        style: const TextStyle(
+                          color: Color(0xFF04140C),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 22,
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookAutoToggle extends StatelessWidget {
+  const _BookAutoToggle({
+    required this.enabled,
+    required this.capturing,
+    required this.l10n,
+    required this.onToggle,
+  });
+
+  final bool enabled;
+  final bool capturing;
+  final AppLocalizations l10n;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 36,
+            height: 22,
+            child: Switch(
+              key: const ValueKey('captureAutoToggle'),
+              value: enabled,
+              onChanged: capturing ? null : (_) => onToggle(),
+              activeThumbColor: const Color(0xFF04140C),
+              activeTrackColor: AppTheme.accent,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              l10n.bookAutoCapture,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BookSessionPagesSheet extends StatelessWidget {
+  const _BookSessionPagesSheet({
+    required this.pages,
+    required this.l10n,
+    required this.onClose,
+  });
+
+  final List<ScanPage> pages;
+  final AppLocalizations l10n;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l10n.bookSessionPagesTitle,
+                    style: const TextStyle(
+                      color: AppTheme.homeText,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  key: const ValueKey('bookSessionPagesResume'),
+                  onPressed: onClose,
+                  child: Text(l10n.bookResumeScanning),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 280,
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 0.72,
+                ),
+                itemCount: pages.length,
+                itemBuilder: (context, index) {
+                  final page = pages[index];
+                  final path = page.thumbnailPath ?? page.processedImagePath;
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.file(
+                          File(path),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              const ColoredBox(color: Colors.white12),
+                        ),
+                        Positioned(
+                          left: 6,
+                          bottom: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 4,
+                          top: 4,
+                          child: _BookThumbStatus(status: page.status),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

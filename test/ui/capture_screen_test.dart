@@ -158,15 +158,28 @@ class _TestCaptureProvider implements CaptureProvider {
 
 class _FakePageRepository implements PageRepository {
   final _pages = <String, ScanPage>{};
+  final _controller = StreamController<List<ScanPage>>.broadcast();
+
+  void _emit() {
+    if (!_controller.isClosed) {
+      _controller.add(_pages.values.toList());
+    }
+  }
 
   @override
   Future<ScanPage?> getPage(String pageId) async => _pages[pageId];
 
   @override
-  Future<void> addPage(ScanPage page) async => _pages[page.id] = page;
+  Future<void> addPage(ScanPage page) async {
+    _pages[page.id] = page;
+    _emit();
+  }
 
   @override
-  Future<void> updatePage(ScanPage page) async => _pages[page.id] = page;
+  Future<void> updatePage(ScanPage page) async {
+    _pages[page.id] = page;
+    _emit();
+  }
 
   @override
   Future<List<ScanPage>> getPages(String projectId) async =>
@@ -182,7 +195,7 @@ class _FakePageRepository implements PageRepository {
   Future<void> reorderPages(String projectId, List<String> order) async {}
 
   @override
-  Stream<List<ScanPage>> watchPages(String projectId) => const Stream.empty();
+  Stream<List<ScanPage>> watchPages(String projectId) => _controller.stream;
 }
 
 class _FakeProjectRepository implements ProjectRepository {
@@ -1207,16 +1220,60 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    await tester.runAsync(() => viewModel.captureManually());
+    expect(find.text('Book Scan'), findsOneWidget);
+    expect(find.text('Ready to scan your book'), findsNothing);
+    expect(find.text('Start scanning'), findsNothing);
+
+    await tester.runAsync(() async {
+      await viewModel.captureManually();
+      await viewModel.waitForBookEnhancement();
+    });
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1700));
 
     expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('bookCaptureToast')), findsNothing);
+
     await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
+    await tester.pump();
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('pageReviewMarker')), findsOneWidget);
     expect(find.byKey(const ValueKey('cropCorrectionMarker')), findsNothing);
   });
+
+  test(
+    'book capture toast clears while the shutter stays free',
+    () async {
+      projectRepository.nextProject = Project(
+        id: 'proj1',
+        type: ProjectType.book,
+        title: 'Book',
+        metadata: const ProjectMetadata(),
+        pageOrder: const [],
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        processingState: ProcessingState.idle,
+      );
+      final gate = Completer<void>();
+      enhancementProvider.enhanceGate = gate;
+      final viewModel = buildViewModel();
+      await viewModel.initialize();
+
+      final pages = await viewModel.captureManually();
+      expect(viewModel.capturing, isFalse);
+      expect(viewModel.captureToastPageNumber, 1);
+      expect(viewModel.frozenPreviewPath, isNull);
+      expect(pages.single.status, PageStatus.processing);
+
+      gate.complete();
+      await viewModel.waitForBookEnhancement();
+      expect(
+        (await pageRepository.getPage(pages.single.id))?.status,
+        PageStatus.ready,
+      );
+    },
+  );
 
   testWidgets('ID capture asks for the front, then the back', (tester) async {
     final viewModel = buildViewModel(preferredCaptureMode: CaptureMode.idCard);

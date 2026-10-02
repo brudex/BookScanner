@@ -85,6 +85,21 @@ class CaptureViewModel extends ChangeNotifier {
   final List<String> _bookEnhanceQueue = [];
   bool _bookEnhanceRunning = false;
 
+  StreamSubscription<List<ScanPage>>? _pagesSubscription;
+  List<ScanPage> _sessionPages = const [];
+
+  /// Pages in this project, newest last — drives the book thumbnail strip.
+  List<ScanPage> get sessionPages => _sessionPages;
+
+  /// True while at least one book page is still enhancing.
+  bool get bookEnhancePending =>
+      _bookEnhanceQueue.isNotEmpty || _bookEnhanceRunning;
+
+  /// Page number (1-based) for the transient “captured · Processing” toast.
+  int? _captureToastPageNumber;
+  int? get captureToastPageNumber => _captureToastPageNumber;
+  Timer? _captureToastTimer;
+
   CapturePermissionState _permissionState = CapturePermissionState.unknown;
   CapturePermissionState get permissionState => _permissionState;
 
@@ -246,10 +261,18 @@ class CaptureViewModel extends ChangeNotifier {
     final project = await _projectRepository.getProject(projectId);
     _projectType = project?.type;
     final pages = await _pageRepository.getPages(projectId);
+    _syncSessionPages(pages);
     _pageCount = pages.length;
     _captureSettings =
         (await _settingsRepository.getSettings()).captureSettings;
     _autoCaptureEnabled = _captureSettings.autoCaptureEnabled;
+
+    if (_projectType == ProjectType.book) {
+      await _pagesSubscription?.cancel();
+      _pagesSubscription = _pageRepository.watchPages(projectId).listen(
+        _syncSessionPages,
+      );
+    }
 
     final status = await Permission.camera.status;
     _permissionState = _mapStatus(status);
@@ -258,6 +281,17 @@ class CaptureViewModel extends ChangeNotifier {
     if (_permissionState == CapturePermissionState.granted) {
       await _openSession();
     }
+  }
+
+  void _syncSessionPages(List<ScanPage> pages) {
+    final sorted = [...pages]..sort((a, b) => a.sequence.compareTo(b.sequence));
+    _sessionPages = sorted;
+    _pageCount = sorted.length;
+    if (sorted.isNotEmpty) {
+      final last = sorted.last;
+      _lastPagePreviewPath = last.thumbnailPath ?? last.processedImagePath;
+    }
+    _notify();
   }
 
   Future<void> requestPermission() async {
@@ -406,8 +440,12 @@ class CaptureViewModel extends ChangeNotifier {
         SystemSound.play(SystemSoundType.click);
       }
       final still = stills.first;
-      _frozenPreviewPath = still.originalImagePath;
-      _notify();
+      // Books stay on the live camera — no frozen/result preview that would
+      // interrupt the next page. Documents keep the brief freeze cue.
+      if (_projectType != ProjectType.book) {
+        _frozenPreviewPath = still.originalImagePath;
+        _notify();
+      }
       final replaceId = replacePageId;
       if (replaceId != null) {
         // Always the single-page replace path, even in a book project --
@@ -432,12 +470,14 @@ class CaptureViewModel extends ChangeNotifier {
       _pageCount += pages.length;
       final first = pages.first;
       _lastPagePreviewPath = first.originalImagePath;
-      _noteIdScanProgress();
       if (_projectType == ProjectType.book) {
+        _mergeSessionPages(pages);
+        _showCaptureToast(_pageCount);
         for (final page in pages) {
           _enqueueBookEnhance(page.id);
         }
       }
+      _noteIdScanProgress();
       // Processing (crop, document filter) for books runs in the
       // background queue. Documents wait until post-capture edit / Review.
       return pages;
@@ -496,10 +536,78 @@ class CaptureViewModel extends ChangeNotifier {
     try {
       final pages = await _persistCapturedStill(still, sequence: _pageCount);
       _pageCount += pages.length;
+      if (pages.isNotEmpty) {
+        _lastPagePreviewPath = pages.last.originalImagePath;
+      }
+      if (_projectType == ProjectType.book) {
+        _mergeSessionPages(pages);
+        _showCaptureToast(_pageCount);
+        for (final page in pages) {
+          _enqueueBookEnhance(page.id);
+        }
+      }
       _noteIdScanProgress();
       return pages;
     } finally {
       _capturing = false;
+      _notify();
+    }
+  }
+
+  void _mergeSessionPages(List<ScanPage> added) {
+    final byId = {for (final p in _sessionPages) p.id: p};
+    for (final page in added) {
+      byId[page.id] = page;
+    }
+    _syncSessionPages(byId.values.toList());
+  }
+
+  void _showCaptureToast(int pageNumber) {
+    _captureToastTimer?.cancel();
+    _captureToastPageNumber = pageNumber;
+    _captureToastTimer = Timer(const Duration(milliseconds: 1600), () {
+      _captureToastPageNumber = null;
+      _notify();
+    });
+  }
+
+  /// Blocks until the book enhance queue is empty (Done → Review).
+  Future<void> waitForBookEnhancement() async {
+    while (bookEnhancePending && !_disposed) {
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+    }
+  }
+
+  void _enqueueBookEnhance(String pageId) {
+    _bookEnhanceQueue.add(pageId);
+    unawaited(_drainBookEnhanceQueue());
+  }
+
+  Future<void> _drainBookEnhanceQueue() async {
+    if (_bookEnhanceRunning) return;
+    _bookEnhanceRunning = true;
+    _notify();
+    try {
+      // Keep draining after the capture screen disposes: Done opens Review
+      // while pages may still be enhancing, and Review watches page rows.
+      while (_bookEnhanceQueue.isNotEmpty) {
+        final pageId = _bookEnhanceQueue.removeAt(0);
+        final page = await _pageRepository.getPage(pageId);
+        if (page == null) continue;
+        try {
+          final updated = await _processBookSpreadUseCase.enhanceSavedPage(
+            page,
+          );
+          _mergeSessionPages([updated]);
+        } catch (_) {
+          // Mark error on the thumb; keep scanning uninterrupted.
+          final failed = page.copyWith(status: PageStatus.error);
+          await _pageRepository.updatePage(failed);
+          _mergeSessionPages([failed]);
+        }
+      }
+    } finally {
+      _bookEnhanceRunning = false;
       _notify();
     }
   }
@@ -537,35 +645,6 @@ class CaptureViewModel extends ChangeNotifier {
   void _noteIdScanProgress() {
     if (isIdScan && replacePageId == null && _pageCount >= 2) {
       _idScanFinished = true;
-    }
-  }
-
-  void _enqueueBookEnhance(String pageId) {
-    _bookEnhanceQueue.add(pageId);
-    unawaited(_drainBookEnhanceQueue());
-  }
-
-  Future<void> _drainBookEnhanceQueue() async {
-    if (_bookEnhanceRunning) return;
-    _bookEnhanceRunning = true;
-    try {
-      // Keep draining after the capture screen disposes: Done opens Review
-      // while pages may still be enhancing, and Review watches page rows.
-      while (_bookEnhanceQueue.isNotEmpty) {
-        final pageId = _bookEnhanceQueue.removeAt(0);
-        final page = await _pageRepository.getPage(pageId);
-        if (page == null) continue;
-        try {
-          await _processBookSpreadUseCase.enhanceSavedPage(page);
-        } catch (_) {
-          // Leave the original still; Review can still open and re-edit.
-          await _pageRepository.updatePage(
-            page.copyWith(status: PageStatus.ready),
-          );
-        }
-      }
-    } finally {
-      _bookEnhanceRunning = false;
     }
   }
 
@@ -614,6 +693,8 @@ class CaptureViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _captureToastTimer?.cancel();
+    unawaited(_pagesSubscription?.cancel());
     unawaited(closeSession());
     super.dispose();
   }
