@@ -5,15 +5,11 @@ status, source files, tests, and verification evidence. Updated after every
 vertical slice. Nothing here is marked "done" unless it has been run and
 observed working, not just written.
 
-**Last updated:** 2026-10-02 (Fast book scanning). Books use the live
-camera (`ModeAwareCaptureProvider` → `NativeCaptureProvider`): one still
-per shutter, save immediately as `processing`, enhance on a serial
-background queue, Done → existing Review. Documents/IDs stay on the
-system document scanner and the post-capture crop/filter walk.
-Domain + ModeAware unit tests passed with `--no-pub`. Capture screen
-widget tests are written but could not run on Flutter 3.38.7 / Dart
-3.10.7 (`camera ^0.12.1` requires SDK ^3.12.0; stale package_config
-also missing lucide/svg/cunning).
+**Last updated:** 2026-10-02 (Continuous book scan UI). Book Capture is a
+live camera chrome (Book Scan title, shutter, thumb strip with
+processing/check badges, capture toast, Auto/Import, Done waits for
+background enhance → existing Review). No ready/setup screen or
+Continue popup for books. Documents/IDs unchanged.
 
 **Previous update, 2026-10-02 (Scan ID).** New Scan offers Scan ID.
 The existing scanner captures the front, then the back (one page each),

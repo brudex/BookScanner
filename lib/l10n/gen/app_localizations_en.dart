@@ -373,6 +373,44 @@ class AppLocalizationsEn extends AppLocalizations {
       'Photograph one page at a time. Keep scanning — pages process in the background. Tap Done when finished to open Review.';
 
   @override
+  String get bookScanTitle => 'Book Scan';
+
+  @override
+  String get bookScanDone => 'Done';
+
+  @override
+  String get bookAutoCapture => 'Auto capture';
+
+  @override
+  String get bookHoldSteady => 'Hold steady to capture';
+
+  @override
+  String get bookPageDetected => 'Page detected';
+
+  @override
+  String bookPageCapturedProcessing(int page) {
+    return 'Page $page captured · Processing';
+  }
+
+  @override
+  String bookPagesCount(num count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count pages',
+      one: '1 page',
+      zero: '0 pages',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get bookSessionPagesTitle => 'Captured pages';
+
+  @override
+  String get bookResumeScanning => 'Resume scanning';
+
+  @override
   String get captureStartScanning => 'Start scanning';
 
   @override

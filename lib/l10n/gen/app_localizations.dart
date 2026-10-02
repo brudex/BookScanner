@@ -754,6 +754,60 @@ abstract class AppLocalizations {
   /// **'Photograph one page at a time. Keep scanning — pages process in the background. Tap Done when finished to open Review.'**
   String get captureReadyBookBody;
 
+  /// Title of the continuous book capture camera screen
+  ///
+  /// In en, this message translates to:
+  /// **'Book Scan'**
+  String get bookScanTitle;
+
+  /// Finish book capture and open Review after background processing
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get bookScanDone;
+
+  /// Toggle automatic shutter during book scan
+  ///
+  /// In en, this message translates to:
+  /// **'Auto capture'**
+  String get bookAutoCapture;
+
+  /// Guidance pill while lining up a book page
+  ///
+  /// In en, this message translates to:
+  /// **'Hold steady to capture'**
+  String get bookHoldSteady;
+
+  /// Guidance pill when live edge detection finds a page
+  ///
+  /// In en, this message translates to:
+  /// **'Page detected'**
+  String get bookPageDetected;
+
+  /// Lightweight toast after a book page is saved and queued for background enhance
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} captured · Processing'**
+  String bookPageCapturedProcessing(int page);
+
+  /// Running page count on the book capture bottom bar
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{0 pages} =1{1 page} other{{count} pages}}'**
+  String bookPagesCount(num count);
+
+  /// Title of the in-session book pages sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Captured pages'**
+  String get bookSessionPagesTitle;
+
+  /// Closes the in-session pages sheet and returns to the live camera
+  ///
+  /// In en, this message translates to:
+  /// **'Resume scanning'**
+  String get bookResumeScanning;
+
   /// Button that opens the native document scanner
   ///
   /// In en, this message translates to:
