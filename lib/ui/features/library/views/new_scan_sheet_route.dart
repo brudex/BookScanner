@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../../../domain/models/capture_models.dart';
 import '../../../../domain/models/project.dart';
 import '../../../../domain/repositories/project_repository.dart';
 import '../../../../l10n/gen/app_localizations.dart';
@@ -45,6 +46,20 @@ class _NewScanSheetRouteState extends State<NewScanSheetRoute> {
     context.pushReplacement(NewScanSheetRoute.afterCreate(project));
   }
 
+  Future<void> _createIdScan() async {
+    if (_creating) return;
+    setState(() => _creating = true);
+    final project = await locator<ProjectRepository>().createProject(
+      type: ProjectType.document,
+      title: AppLocalizations.of(context).modeScanId,
+    );
+    if (!mounted) return;
+    context.pushReplacement(
+      AppRoutes.captureFor(project.id),
+      extra: CaptureMode.idCard,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -75,6 +90,14 @@ class _NewScanSheetRouteState extends State<NewScanSheetRoute> {
                       title: l10n.modeBook,
                       subtitle: l10n.modeBookSubtitle,
                       onTap: () => _createAndGo(ProjectType.book),
+                    ),
+                    const SizedBox(height: 12),
+                    _ModeCard(
+                      key: const ValueKey('newScanModeId'),
+                      icon: LucideIcons.creditCard,
+                      title: l10n.modeScanId,
+                      subtitle: l10n.modeScanIdSubtitle,
+                      onTap: _createIdScan,
                     ),
                   ],
                 ),

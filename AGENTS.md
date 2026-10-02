@@ -51,21 +51,28 @@ lib/
     repositories/  # abstract interfaces only
     providers/     # abstract interfaces only (Capture, PageDetection,
                     # ImageEnhancement, BookDewarp, Ocr, DocumentExport,
-                    # PdfRasterizer)
+                    # PdfRasterizer, ConversionApi)
     use_cases/
   data/          # Concrete implementations of domain interfaces.
     repositories/  # *_impl.dart
     services/
-      scanner/adapters/   # real + fake CaptureProvider / PageDetectionProvider
+      scanner/adapters/   # capture, OpenCV + Dart detection/enhance, dewarp
       ocr/adapters/       # real + fake OcrProvider
-      export/adapters/    # PDF/DOCX/Markdown export adapters
+      export/             # PDF, DOCX, Markdown, EPUB writers + rasterizer adapters
       local/              # sqflite DatabaseService, AppPaths
-      remote/
+      remote/             # BookScannerApiClient (ConversionApi)
   ui/
     core/di/service_locator.dart   # single composition root (get_it)
-    features/<feature>/
-      view_models/   # ChangeNotifier
-      views/          # StatefulWidget, lean — no business logic
+    core/app_lock_controller.dart
+    features/
+      capture/
+      library/          # library, folders, favorites, trash, search, book setup
+      page_review/      # review, crop, filter, spread split, post-capture edit
+      page_operations/
+      ocr_review/
+      export/
+      settings/         # settings + unlock
+      onboarding/
   routing/app_router.dart   # go_router, AppRoutes string constants
   l10n/app_en.arb            # source of truth; gen/ is generated, don't hand-edit
 ```
@@ -73,15 +80,45 @@ lib/
 Rules that must hold:
 
 - **No `ui/` file imports a vendor SDK or platform channel directly**
-  (CameraX, AVFoundation, ML Kit, etc.). Everything goes through a
-  `domain/providers/*.dart` interface, wired up in `service_locator.dart`.
-  Verify with `flutter analyze` after touching anything in `ui/features/**`.
-- **Every provider interface needs a fake** (e.g. `FakeCaptureProvider`,
-  `FakeOcrProvider`) usable in tests and integration tests, plus a
-  **contract test** that runs against any adapter implementing the interface
-  (see `test/data/scanner/capture_provider_contract_test.dart`). New
-  providers/adapters follow this same three-part shape: interface, fake,
-  contract test.
+  (CameraX, AVFoundation, ML Kit, OpenCV, `cunning_document_scanner`, etc.).
+  Everything goes through a `domain/providers/*.dart` interface, wired up in
+  `service_locator.dart`. Verify with `flutter analyze` after touching
+  anything in `ui/features/**`.
+- **Production capture** is `ModeAwareCaptureProvider` in
+  `_selectCaptureProvider()`: documents and IDs use
+  `CunningDocumentScannerCaptureProvider` (ML Kit Document Scanner on
+  Android, VisionKit on iOS); books use `NativeCaptureProvider` (CameraX /
+  AVFoundation) for one live still per shutter. `CameraPackageCaptureProvider`
+  stays in the tree and is not registered. A document shutter calls
+  `CapturePageUseCase.saveShot`: it stores the still and returns. Crop and
+  filters run page by page in post-capture edit after the user taps Done,
+  not during the shutter and not as a bulk step on Review. Book capture
+  uses `ProcessBookSpreadUseCase.processSinglePage` (save as `processing`)
+  then `enhanceSavedPage` on a serial background queue so the next shutter
+  is not blocked; Done opens the existing Review screen (no post-capture
+  crop/filter walk). Stills from the system scanner set
+  `StillCapture.nativeReady`, which makes `processCapture` keep that
+  already-cropped image.
+- **Page detection and enhancement** are `NativeOpenCv*Provider` wrappers
+  over the path-based vision channel `com.quizfactor.bookscanner/vision`,
+  falling back to the Dart adapters when the plugin is missing or reports
+  unavailable. Android pins `org.opencv:opencv:4.11.0` and runs detection
+  in Kotlin (`OpenCvScanEngine`). iOS `VisionPlugin` reports unavailable
+  until `scripts/fetch_opencv_ios.sh` links an OpenCV 4.11 xcframework.
+  Do not send live frames through platform channels, and do not copy the
+  gitignored GPLv3 `Document-Scanner/` clone or its OpenCV 3.1 binaries.
+- **`ConversionApi`** is the server PDF conversion contract (Markdown,
+  EPUB, searchable PDF). `BookScannerApiClient` is the only implementation.
+  Page size and image quality stay on the phone.
+- **Every new provider interface needs a fake** usable in tests and
+  integration tests, plus a **contract test** that runs against any adapter
+  implementing the interface. Existing contract tests:
+  `test/data/scanner/capture_provider_contract_test.dart`,
+  `test/data/ocr/ocr_provider_contract_test.dart`,
+  `test/data/export/pdf_rasterizer_provider_contract_test.dart`.
+  Detection, enhancement, book dewarp, and `ConversionApi` currently have
+  unit or fallback tests rather than that contract shape — follow the
+  contract shape for a new interface.
 - **ViewModels are `ChangeNotifier`**, views use `ListenableBuilder`. Views
   take an optional injectable `viewModel` constructor parameter (null in
   production → built from `locator<>()`; tests pass a fake/real VM directly).
@@ -89,11 +126,13 @@ Rules that must hold:
 - **Routing** goes through `AppRoutes` string constants in
   `lib/routing/app_router.dart`, never raw path strings scattered in
   `context.push(...)` calls. Use `extra:` for passing non-path data (see
-  the rescan flow's `pageId` for a real example).
+  the rescan flow's `pageId`, and `CropFlowMode.postCapture`, for real
+  examples).
 - **`ScanPage.copyWith` deliberately cannot change `originalImagePath`** —
-  the original image is retained until the user explicitly deletes it. If
-  you need to genuinely replace a page's image content (e.g. rescan),
-  construct a new `ScanPage` explicitly; don't fight `copyWith` for this.
+  the original image is retained until the user explicitly deletes it. UI
+  lists prefer `processedImagePath`. If you need to genuinely replace a
+  page's image content (e.g. rescan), construct a new `ScanPage`
+  explicitly; don't fight `copyWith` for this.
 
 ## Testing conventions
 
@@ -110,12 +149,12 @@ Rules that must hold:
 - If a widget test does real `dart:io` or `dart:ui.instantiateImageCodec`
   work, wrap it in `tester.runAsync()` or it will hang/misbehave inside
   `flutter_test`'s fake-async zone.
-- **`context.pop()` (go_router) requires a real `GoRouter` ancestor.** No
-  widget test in this repo currently pumps one. If you need to test
-  navigation-triggering logic, either test the ViewModel directly with a
-  plain `test()` (see `capture_screen_test.dart` for the rescan case) or
-  cover it via an `integration_test/` end-to-end flow — don't try to fake a
-  `BuildContext.pop()`.
+- **`context.pop()` / `context.go()` (go_router) requires a real `GoRouter`
+  ancestor.** Most widget tests do not pump one. `unlock_screen_test.dart`
+  does, for unlock navigation. Otherwise test the ViewModel directly with
+  a plain `test()` (see `capture_screen_test.dart` for the rescan case) or
+  cover it via an `integration_test/` end-to-end flow — don't try to fake
+  a `BuildContext.pop()`.
 - `integration_test/*.dart` files drive the real widget tree end to end with
   fake `CaptureProvider`/`OcrProvider` doubles registered via
   `service_locator.dart`'s `locator.unregister<T>()` /
@@ -139,23 +178,28 @@ Both must be clean. Run `flutter gen-l10n` after editing `lib/l10n/app_en.arb`
 
 ## Environment constraints specific to this project
 
-- This repo has **no `.git`** — it is not currently a git repository. Don't
-  assume git history/blame is available; check with `git status` before any
-  git-based instruction and don't silently `git init` without asking.
+- This is a git repository. `master` tracks `origin`
+  (`git@github.com:brudex/BookScanner.git`). Use normal git commands. Don't
+  `git init` again, and don't commit or push unless the user asks.
+- `/Document-Scanner/` is gitignored. It is a GPLv3 behavioral reference
+  with old OpenCV 3.1 binaries. Do not copy its source or binaries into
+  this project.
 - Android release signing currently reuses the debug keystore
   (`android/app/build.gradle.kts`), so `flutter build apk --debug` and
-  `--release` are equivalently installable without a real keystore.
+  `--release` are equivalently installable without a real keystore. Release
+  APKs are arm64-only (`abiFilters` / JNI excludes).
 - Host RAM on this machine oscillates and has previously dropped as low as
   ~60MB free, which has caused real ANRs/GC-churn when booting an Android
-  emulator. Check `vm_stat`/`df -h` before starting an emulator or any
-  long-lived interactive device session. A one-shot bounded build (e.g.
-  `flutter build apk`) is much lower-risk than booting an emulator — prefer
-  it, and if genuinely low on memory, say so rather than attempting a risky
-  boot silently.
+  emulator and stalled Gradle/Kotlin compiles. Check `vm_stat` before
+  starting an emulator or a long Gradle test run. A one-shot bounded build
+  (e.g. `flutter build apk`) is much lower-risk than booting an emulator —
+  prefer it, and if genuinely low on memory, say so rather than attempting
+  a risky boot silently.
 - No physical iOS device, Apple signing identity, or second locale is
   available in this environment — several `IMPLEMENTATION_STATUS.md` rows
   are legitimately 🚫-blocked on these, not on missing code. Don't try to
-  fake verification of these; say what's blocked and why.
+  fake verification of these; say what's blocked and why. iOS OpenCV stays
+  on the Dart fallback until the xcframework is linked and a device exists.
 
 ## Task tracking
 
@@ -167,8 +211,9 @@ them drift apart.
 ## Scope discipline
 
 - Don't add abstractions, error handling, or fallbacks for scenarios the spec
-  doesn't call for. Match the existing minimalism (e.g. `analysis_options.yaml`
-  is a single `include:` line — don't gold-plate lint config either).
+  doesn't call for. Match the existing minimalism (`analysis_options.yaml`
+  includes `flutter_lints` and excludes `build/**`, `android/**`, and
+  `ios/**` — don't gold-plate lint config either).
 - Prefer extending an existing pattern (mirror the nearest analogous
   ViewModel/Screen/provider) over inventing a new one. Nearly every feature
   in this codebase follows the same View/ViewModel/UseCase/Repository shape —

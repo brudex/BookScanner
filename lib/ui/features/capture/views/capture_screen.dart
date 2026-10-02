@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -57,6 +58,7 @@ class CaptureScreen extends StatefulWidget {
 class _CaptureScreenState extends State<CaptureScreen> {
   late final CaptureViewModel _viewModel;
   bool _showGrid = false;
+  bool _leavingForReview = false;
 
   @override
   void initState() {
@@ -78,10 +80,28 @@ class _CaptureScreenState extends State<CaptureScreen> {
     _viewModel.addListener(_onViewModelChanged);
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final l10n = AppLocalizations.of(context);
+    _viewModel.idFrontLabel = l10n.scanIdSideFront;
+    _viewModel.idBackLabel = l10n.scanIdSideBack;
+  }
+
   void _onViewModelChanged() {
     if (_viewModel.replacementComplete && mounted) {
       context.pop();
     }
+    if (_viewModel.idScanFinished && !_leavingForReview && mounted) {
+      _leavingForReview = true;
+      unawaited(_openIdReview());
+    }
+  }
+
+  Future<void> _openIdReview() async {
+    await _viewModel.closeSession();
+    if (!mounted) return;
+    context.pushReplacement(AppRoutes.pageReviewFor(widget.projectId));
   }
 
   @override
@@ -212,6 +232,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 capturing: _viewModel.capturing,
                 lastPagePreviewPath: _viewModel.lastPagePreviewPath,
                 isBook: _viewModel.projectType == ProjectType.book,
+                isIdScan: _viewModel.isIdScan,
                 l10n: l10n,
                 onShutter: () => _viewModel.captureManually(),
                 onImport: _importFromGallery,
@@ -219,7 +240,15 @@ class _CaptureScreenState extends State<CaptureScreen> {
                   if (_viewModel.pageCount == 0) return;
                   await _viewModel.closeSession();
                   if (!mounted) return;
-                  // After shooting: crop this page, then filters, then the next page.
+                  // Books skip the post-capture crop/filter walk and open
+                  // the existing Review pages screen. Documents still crop
+                  // then filter page by page.
+                  if (_viewModel.projectType == ProjectType.book) {
+                    this.context.pushReplacement(
+                      AppRoutes.pageReviewFor(widget.projectId),
+                    );
+                    return;
+                  }
                   final pageId = await _viewModel.firstPageIdOrdered();
                   if (!mounted || pageId == null) return;
                   this.context.pushReplacement(
@@ -383,10 +412,7 @@ class _CaptureTopBar extends StatelessWidget {
 ///
 /// `fit: BoxFit.contain` matches the live preview's letterboxed mapping.
 class _FrozenCapturePreview extends StatelessWidget {
-  const _FrozenCapturePreview({
-    required this.path,
-    this.zoomIntoGuide = true,
-  });
+  const _FrozenCapturePreview({required this.path, this.zoomIntoGuide = true});
 
   final String path;
 
@@ -825,6 +851,7 @@ class _CaptureControls extends StatelessWidget {
     required this.capturing,
     required this.lastPagePreviewPath,
     required this.isBook,
+    required this.isIdScan,
     required this.l10n,
     required this.onShutter,
     required this.onDone,
@@ -835,6 +862,7 @@ class _CaptureControls extends StatelessWidget {
   final bool capturing;
   final String? lastPagePreviewPath;
   final bool isBook;
+  final bool isIdScan;
   final AppLocalizations l10n;
   final VoidCallback onShutter;
   final VoidCallback onDone;
@@ -842,8 +870,16 @@ class _CaptureControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = isBook ? l10n.captureReadyBookTitle : l10n.captureReadyTitle;
-    final body = isBook ? l10n.captureReadyBookBody : l10n.captureReadyBody;
+    final scanningBack = isIdScan && pageCount > 0;
+    final title = isIdScan
+        ? (scanningBack ? l10n.scanIdBackTitle : l10n.scanIdFrontTitle)
+        : (isBook ? l10n.captureReadyBookTitle : l10n.captureReadyTitle);
+    final body = isIdScan
+        ? (scanningBack ? l10n.scanIdBackBody : l10n.scanIdFrontBody)
+        : (isBook ? l10n.captureReadyBookBody : l10n.captureReadyBody);
+    final shutterLabel = isIdScan
+        ? (scanningBack ? l10n.scanIdBackButton : l10n.scanIdFrontButton)
+        : l10n.captureStartScanning;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Column(
@@ -892,7 +928,7 @@ class _CaptureControls extends StatelessWidget {
               ),
               icon: const Icon(LucideIcons.scanLine),
               label: Text(
-                l10n.captureStartScanning,
+                shutterLabel,
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
@@ -911,7 +947,7 @@ class _CaptureControls extends StatelessWidget {
                   ),
                 ),
               ),
-              if (pageCount > 0)
+              if (!isIdScan && pageCount > 0)
                 Expanded(
                   child: _ContinueControl(
                     pageCount: pageCount,

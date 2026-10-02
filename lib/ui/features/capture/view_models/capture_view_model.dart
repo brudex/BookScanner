@@ -48,6 +48,19 @@ class CaptureViewModel extends ChangeNotifier {
   /// Home quick-action override (e.g. [CaptureMode.idCard]).
   final CaptureMode? preferredCaptureMode;
 
+  /// Review labels for the two ID sides. The capture screen sets these
+  /// from l10n before the user shoots.
+  String idFrontLabel = 'Front';
+  String idBackLabel = 'Back';
+
+  bool get isIdScan => preferredCaptureMode == CaptureMode.idCard;
+
+  bool _idScanFinished = false;
+
+  /// True once both sides of an ID have been saved. The capture screen
+  /// then opens the existing review page.
+  bool get idScanFinished => _idScanFinished;
+
   /// How long to hold the processed (cropped/perspective-corrected) page
   /// on screen after enhance finishes, so the user sees the final look
   /// before the live camera returns for the next shot. Tests pass
@@ -66,6 +79,11 @@ class CaptureViewModel extends ChangeNotifier {
   final ProjectRepository _projectRepository;
   final PageRepository _pageRepository;
   final SettingsRepository _settingsRepository;
+
+  /// Book pages waiting for background crop/filter. Processed one at a time
+  /// so isolate work does not pile up; the shutter is not blocked on this.
+  final List<String> _bookEnhanceQueue = [];
+  bool _bookEnhanceRunning = false;
 
   CapturePermissionState _permissionState = CapturePermissionState.unknown;
   CapturePermissionState get permissionState => _permissionState;
@@ -229,7 +247,8 @@ class CaptureViewModel extends ChangeNotifier {
     _projectType = project?.type;
     final pages = await _pageRepository.getPages(projectId);
     _pageCount = pages.length;
-    _captureSettings = (await _settingsRepository.getSettings()).captureSettings;
+    _captureSettings =
+        (await _settingsRepository.getSettings()).captureSettings;
     _autoCaptureEnabled = _captureSettings.autoCaptureEnabled;
 
     final status = await Permission.camera.status;
@@ -413,8 +432,14 @@ class CaptureViewModel extends ChangeNotifier {
       _pageCount += pages.length;
       final first = pages.first;
       _lastPagePreviewPath = first.originalImagePath;
-      // Processing (crop, document filter) waits until the user asks for it
-      // on Review. The camera returns as soon as the photo is saved.
+      _noteIdScanProgress();
+      if (_projectType == ProjectType.book) {
+        for (final page in pages) {
+          _enqueueBookEnhance(page.id);
+        }
+      }
+      // Processing (crop, document filter) for books runs in the
+      // background queue. Documents wait until post-capture edit / Review.
       return pages;
     } on ProviderException catch (e) {
       if (e.category == ProviderErrorCategory.cancelled) return const [];
@@ -434,9 +459,16 @@ class CaptureViewModel extends ChangeNotifier {
 
   Future<List<StillCapture>> _captureStills() async {
     final provider = _captureProvider;
+    // Books use the live camera: one still per shutter, never the multi-page
+    // document-scanner UI (that UI stops on Enhance/Filters/Crop).
+    if (_projectType == ProjectType.book) {
+      return [await provider.captureStill()];
+    }
     if (replacePageId == null && provider is BatchDocumentCapture) {
       final batch = provider as BatchDocumentCapture;
-      return batch.scanDocuments(maxPages: 20);
+      // An ID is two separate scans (front, then back), each one page.
+      // Documents keep the multi-page native scanner.
+      return batch.scanDocuments(maxPages: isIdScan ? 1 : 20);
     }
     return [await provider.captureStill()];
   }
@@ -464,6 +496,7 @@ class CaptureViewModel extends ChangeNotifier {
     try {
       final pages = await _persistCapturedStill(still, sequence: _pageCount);
       _pageCount += pages.length;
+      _noteIdScanProgress();
       return pages;
     } finally {
       _capturing = false;
@@ -487,8 +520,53 @@ class CaptureViewModel extends ChangeNotifier {
           capture: still,
           projectId: projectId,
           sequence: sequence,
+          logicalPageLabel: _idSideLabel(sequence),
         )
         .then((page) => [page]);
+  }
+
+  String? _idSideLabel(int sequence) {
+    if (!isIdScan) return null;
+    return switch (sequence) {
+      0 => idFrontLabel,
+      1 => idBackLabel,
+      _ => null,
+    };
+  }
+
+  void _noteIdScanProgress() {
+    if (isIdScan && replacePageId == null && _pageCount >= 2) {
+      _idScanFinished = true;
+    }
+  }
+
+  void _enqueueBookEnhance(String pageId) {
+    _bookEnhanceQueue.add(pageId);
+    unawaited(_drainBookEnhanceQueue());
+  }
+
+  Future<void> _drainBookEnhanceQueue() async {
+    if (_bookEnhanceRunning) return;
+    _bookEnhanceRunning = true;
+    try {
+      // Keep draining after the capture screen disposes: Done opens Review
+      // while pages may still be enhancing, and Review watches page rows.
+      while (_bookEnhanceQueue.isNotEmpty) {
+        final pageId = _bookEnhanceQueue.removeAt(0);
+        final page = await _pageRepository.getPage(pageId);
+        if (page == null) continue;
+        try {
+          await _processBookSpreadUseCase.enhanceSavedPage(page);
+        } catch (_) {
+          // Leave the original still; Review can still open and re-edit.
+          await _pageRepository.updatePage(
+            page.copyWith(status: PageStatus.ready),
+          );
+        }
+      }
+    } finally {
+      _bookEnhanceRunning = false;
+    }
   }
 
   /// Applies the name the user chose in the post-capture "Name this scan"

@@ -18,12 +18,14 @@ import 'package:bookscanner/domain/repositories/settings_repository.dart';
 import 'package:bookscanner/domain/use_cases/capture_page_use_case.dart';
 import 'package:bookscanner/domain/use_cases/process_book_spread_use_case.dart';
 import 'package:bookscanner/l10n/gen/app_localizations.dart';
+import 'package:bookscanner/routing/app_router.dart';
 import 'package:bookscanner/ui/features/capture/view_models/capture_view_model.dart';
 import 'package:bookscanner/ui/features/capture/views/capture_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -335,11 +337,12 @@ class _FakeBookDewarpProvider implements BookDewarpProvider {
 /// Polls [condition] instead of a fixed `Future.delayed`, so async capture
 /// pipeline tests aren't flaky under a slow/loaded CI machine.
 Future<void> _waitUntil(
-  bool Function() condition, {
+  FutureOr<bool> Function() condition, {
   Duration timeout = const Duration(seconds: 5),
 }) async {
   final deadline = DateTime.now().add(timeout);
-  while (!condition() && DateTime.now().isBefore(deadline)) {
+  while (DateTime.now().isBefore(deadline)) {
+    if (await condition()) return;
     await Future<void>.delayed(const Duration(milliseconds: 20));
   }
 }
@@ -354,6 +357,58 @@ Widget _wrap(Widget child) => MaterialApp(
   supportedLocales: AppLocalizations.supportedLocales,
   home: child,
 );
+
+/// Minimal router so book Done can `pushReplacement` to Review.
+Widget _wrapCaptureWithRouter({
+  required CaptureViewModel viewModel,
+  required String projectId,
+}) {
+  final router = GoRouter(
+    initialLocation: AppRoutes.captureFor(projectId),
+    routes: [
+      GoRoute(
+        path: AppRoutes.capture,
+        builder: (context, state) =>
+            CaptureScreen(projectId: projectId, viewModel: viewModel),
+      ),
+      GoRoute(
+        path: AppRoutes.pageReview,
+        builder: (context, state) => const Scaffold(
+          body: Text('Review', key: ValueKey('pageReviewMarker')),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.cropCorrection,
+        builder: (context, state) => const Scaffold(
+          body: Text('Crop', key: ValueKey('cropCorrectionMarker')),
+        ),
+      ),
+    ],
+  );
+  return MaterialApp.router(
+    routerConfig: router,
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    supportedLocales: AppLocalizations.supportedLocales,
+  );
+}
+
+class _IdBatchCaptureProvider extends _TestCaptureProvider
+    implements BatchDocumentCapture {
+  _IdBatchCaptureProvider(super._tmpDir);
+
+  final maxPagesSeen = <int>[];
+
+  @override
+  Future<List<StillCapture>> scanDocuments({int maxPages = 50}) async {
+    maxPagesSeen.add(maxPages);
+    return [await captureStill()];
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -402,7 +457,7 @@ void main() {
       pageRepository: pageRepository,
       dewarpProvider: _FakeBookDewarpProvider(tmpDir),
       detectionProvider: _FakeDetectionProvider(),
-      enhancementProvider: _FakeEnhancementProvider(),
+      enhancementProvider: enhancementProvider,
       fileStorage: paths,
     );
     permissionPlatform = FakePermissionHandlerPlatform();
@@ -413,9 +468,11 @@ void main() {
     Duration resultPreviewHold = Duration.zero,
     String? replacePageId,
     CaptureSettings captureSettings = const CaptureSettings(),
+    CaptureProvider? captureProviderOverride,
+    CaptureMode? preferredCaptureMode,
   }) => CaptureViewModel(
     projectId: 'proj1',
-    captureProvider: captureProvider,
+    captureProvider: captureProviderOverride ?? captureProvider,
     capturePageUseCase: capturePageUseCase,
     processBookSpreadUseCase: processBookSpreadUseCase,
     projectRepository: projectRepository,
@@ -424,6 +481,7 @@ void main() {
       settings: AppSettings(captureSettings: captureSettings),
     ),
     replacePageId: replacePageId,
+    preferredCaptureMode: preferredCaptureMode,
     resultPreviewHold: resultPreviewHold,
   );
 
@@ -534,23 +592,26 @@ void main() {
   // (needed to observe the mid-processing state) isn't a supported
   // combination -- it hung rather than settling. A plain `test()` runs real
   // async normally, with no fake-async pump machinery to fight.
-  test('saves the photo and returns to the camera without processing it', () async {
-    final gate = Completer<void>();
-    enhancementProvider.enhanceGate = gate;
-    final viewModel = buildViewModel();
-    await viewModel.initialize();
+  test(
+    'saves the photo and returns to the camera without processing it',
+    () async {
+      final gate = Completer<void>();
+      enhancementProvider.enhanceGate = gate;
+      final viewModel = buildViewModel();
+      await viewModel.initialize();
 
-    expect(viewModel.pageCount, 0);
+      expect(viewModel.pageCount, 0);
 
-    final captureFuture = viewModel.captureManually();
-    await captureFuture;
+      final captureFuture = viewModel.captureManually();
+      await captureFuture;
 
-    expect(viewModel.capturing, isFalse);
-    expect(viewModel.frozenPreviewPath, isNull);
-    expect(viewModel.resultPreviewPath, isNull);
-    expect(viewModel.pageCount, 1);
-    expect(gate.isCompleted, isFalse);
-  });
+      expect(viewModel.capturing, isFalse);
+      expect(viewModel.frozenPreviewPath, isNull);
+      expect(viewModel.resultPreviewPath, isNull);
+      expect(viewModel.pageCount, 1);
+      expect(gate.isCompleted, isFalse);
+    },
+  );
 
   test(
     'marks capturing immediately on shutter, before captureStill returns',
@@ -807,9 +868,7 @@ void main() {
 
   test('haptic and audio confirmation fire only when enabled', () async {
     final hapticCalls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding
-        .instance
-        .defaultBinaryMessenger
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
           hapticCalls.add(call);
           return null;
@@ -836,9 +895,7 @@ void main() {
 
   test('haptic and audio confirmation stay silent when disabled', () async {
     final hapticCalls = <MethodCall>[];
-    TestDefaultBinaryMessengerBinding
-        .instance
-        .defaultBinaryMessenger
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
           hapticCalls.add(call);
           return null;
@@ -880,24 +937,21 @@ void main() {
     },
   );
 
-  testWidgets(
-    'Continue appears after a page is captured',
-    (tester) async {
-      final viewModel = buildViewModel();
-      await tester.pumpWidget(
-        _wrap(CaptureScreen(projectId: 'proj1', viewModel: viewModel)),
-      );
-      await tester.pump();
-      await tester.pump();
+  testWidgets('Continue appears after a page is captured', (tester) async {
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(
+      _wrap(CaptureScreen(projectId: 'proj1', viewModel: viewModel)),
+    );
+    await tester.pump();
+    await tester.pump();
 
-      await tester.runAsync(() => viewModel.captureManually());
-      await tester.pumpAndSettle();
+    await tester.runAsync(() => viewModel.captureManually());
+    await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
-      expect(find.text('Continue'), findsWidgets);
-      expect(find.byKey(const ValueKey('captureNameField')), findsNothing);
-    },
-  );
+    expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
+    expect(find.text('Continue'), findsWidgets);
+    expect(find.byKey(const ValueKey('captureNameField')), findsNothing);
+  });
 
   test('renameProject delegates to the project repository', () async {
     final viewModel = buildViewModel();
@@ -1009,25 +1063,35 @@ void main() {
     expect(viewModel.pageCount, 1);
   });
 
-  test('a book capture stores one full page even if the project was a spread', () async {
-    projectRepository.nextProject = Project(
-      id: 'proj1',
-      type: ProjectType.book,
-      title: 'Book',
-      metadata: const ProjectMetadata(bookScanMode: BookScanMode.twoPageSpread),
-      pageOrder: const [],
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      processingState: ProcessingState.idle,
-    );
-    final viewModel = buildViewModel();
-    await viewModel.initialize();
-    final pages = await viewModel.captureManually();
-    expect(pages, hasLength(1));
-    expect(viewModel.pageCount, 1);
-    expect(pages.single.spreadSiblingPageId, isNull);
-    expect(pages.single.cropPoints, Quad.fullFrame);
-  });
+  test(
+    'a book capture stores one full page even if the project was a spread',
+    () async {
+      projectRepository.nextProject = Project(
+        id: 'proj1',
+        type: ProjectType.book,
+        title: 'Book',
+        metadata: const ProjectMetadata(
+          bookScanMode: BookScanMode.twoPageSpread,
+        ),
+        pageOrder: const [],
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        processingState: ProcessingState.idle,
+      );
+      final viewModel = buildViewModel();
+      await viewModel.initialize();
+      final pages = await viewModel.captureManually();
+      expect(pages, hasLength(1));
+      expect(viewModel.pageCount, 1);
+      expect(pages.single.spreadSiblingPageId, isNull);
+      expect(pages.single.cropPoints, Quad.fullFrame);
+      expect(pages.single.status, PageStatus.processing);
+      await _waitUntil(() async {
+        final saved = await pageRepository.getPage(pages.single.id);
+        return saved?.status == PageStatus.ready;
+      });
+    },
+  );
 
   test('a book single-page capture persists the full photo', () async {
     projectRepository.nextProject = Project(
@@ -1047,9 +1111,161 @@ void main() {
     expect(viewModel.pageCount, 1);
     expect(pages.single.spreadSiblingPageId, isNull);
     expect(pages.single.cropPoints, Quad.fullFrame);
+    expect(pages.single.status, PageStatus.processing);
     expect(pages.single.stages[PipelineStage.dewarp], isNull);
     expect(pages.single.stages[PipelineStage.split], isNull);
+    await _waitUntil(() async {
+      final saved = await pageRepository.getPage(pages.single.id);
+      return saved?.status == PageStatus.ready &&
+          saved?.filter == PageFilter.enhancedColor;
+    });
   });
+
+  test('book shutter does not open the multi-page document scanner', () async {
+    final batch = _IdBatchCaptureProvider(tmpDir);
+    projectRepository.nextProject = Project(
+      id: 'proj1',
+      type: ProjectType.book,
+      title: 'Book',
+      metadata: const ProjectMetadata(),
+      pageOrder: const [],
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      processingState: ProcessingState.idle,
+    );
+    final gate = Completer<void>();
+    enhancementProvider.enhanceGate = gate;
+    final viewModel = buildViewModel(captureProviderOverride: batch);
+    await viewModel.initialize();
+
+    final pages = await viewModel.captureManually();
+    expect(batch.maxPagesSeen, isEmpty);
+    expect(viewModel.capturing, isFalse);
+    expect(pages.single.status, PageStatus.processing);
+
+    gate.complete();
+    await _waitUntil(() async {
+      final saved = await pageRepository.getPage(pages.single.id);
+      return saved?.status == PageStatus.ready;
+    });
+  });
+
+  test(
+    'book shutter clears while enhancement is still running',
+    () async {
+      projectRepository.nextProject = Project(
+        id: 'proj1',
+        type: ProjectType.book,
+        title: 'Book',
+        metadata: const ProjectMetadata(),
+        pageOrder: const [],
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        processingState: ProcessingState.idle,
+      );
+      final gate = Completer<void>();
+      enhancementProvider.enhanceGate = gate;
+      final viewModel = buildViewModel();
+      await viewModel.initialize();
+
+      final pages = await viewModel.captureManually();
+      expect(viewModel.capturing, isFalse);
+      expect(pages.single.status, PageStatus.processing);
+      expect(gate.isCompleted, isFalse);
+
+      final mid = await pageRepository.getPage(pages.single.id);
+      expect(mid?.status, PageStatus.processing);
+
+      gate.complete();
+      await _waitUntil(() async {
+        final saved = await pageRepository.getPage(pages.single.id);
+        return saved?.status == PageStatus.ready;
+      });
+      final done = await pageRepository.getPage(pages.single.id);
+      expect(done?.filter, PageFilter.enhancedColor);
+      expect(done?.stages[PipelineStage.enhancement], isNotNull);
+    },
+  );
+
+  testWidgets('book Done opens Review instead of post-capture crop', (
+    tester,
+  ) async {
+    projectRepository.nextProject = Project(
+      id: 'proj1',
+      type: ProjectType.book,
+      title: 'Book',
+      metadata: const ProjectMetadata(),
+      pageOrder: const [],
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      processingState: ProcessingState.idle,
+    );
+    final viewModel = buildViewModel();
+    await tester.pumpWidget(
+      _wrapCaptureWithRouter(viewModel: viewModel, projectId: 'proj1'),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.runAsync(() => viewModel.captureManually());
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('pageReviewMarker')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cropCorrectionMarker')), findsNothing);
+  });
+
+  testWidgets('ID capture asks for the front, then the back', (tester) async {
+    final viewModel = buildViewModel(preferredCaptureMode: CaptureMode.idCard);
+    await tester.pumpWidget(
+      _wrap(CaptureScreen(projectId: 'proj1', viewModel: viewModel)),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Scan the front'), findsOneWidget);
+    expect(find.text('Scan front'), findsOneWidget);
+    expect(find.byKey(const ValueKey('captureDoneButton')), findsNothing);
+
+    await tester.runAsync(() => viewModel.captureManually());
+    await tester.pump();
+
+    expect(viewModel.pageCount, 1);
+    expect(viewModel.idScanFinished, isFalse);
+    expect(find.text('Scan the back'), findsOneWidget);
+    expect(find.text('Scan back'), findsOneWidget);
+    expect(find.byKey(const ValueKey('captureDoneButton')), findsNothing);
+    final pages = await pageRepository.getPages('proj1');
+    expect(pages.single.logicalPageLabel, 'Front');
+  });
+
+  test(
+    'ID scan saves one side at a time and finishes after the back',
+    () async {
+      final batch = _IdBatchCaptureProvider(tmpDir);
+      final viewModel = buildViewModel(
+        captureProviderOverride: batch,
+        preferredCaptureMode: CaptureMode.idCard,
+      );
+      viewModel.idFrontLabel = 'Front';
+      viewModel.idBackLabel = 'Back';
+      await viewModel.initialize();
+
+      final front = await viewModel.captureManually();
+      expect(batch.maxPagesSeen, [1]);
+      expect(front.single.logicalPageLabel, 'Front');
+      expect(viewModel.idScanFinished, isFalse);
+
+      final back = await viewModel.captureManually();
+      expect(batch.maxPagesSeen, [1, 1]);
+      expect(back.single.logicalPageLabel, 'Back');
+      expect(viewModel.idScanFinished, isTrue);
+      expect(viewModel.pageCount, 2);
+    },
+  );
 
   testWidgets('a confident live quad draws the detected polygon overlay', (
     tester,

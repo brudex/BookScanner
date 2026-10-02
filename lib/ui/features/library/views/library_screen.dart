@@ -80,13 +80,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _startIdScan() async {
-    final project = await _createProject(ProjectType.document);
-    if (!mounted) return;
-    // ID cards use the document camera path; mode is passed for framing.
-    context.push(
-      AppRoutes.captureFor(project.id),
-      extra: CaptureMode.idCard,
+    final project = await locator<ProjectRepository>().createProject(
+      type: ProjectType.document,
+      title: AppLocalizations.of(context).modeScanId,
     );
+    if (!mounted) return;
+    context.push(AppRoutes.captureFor(project.id), extra: CaptureMode.idCard);
   }
 
   Future<void> _startBookScan() async {
@@ -298,9 +297,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return CustomScrollView(
       key: const ValueKey('libraryScroll'),
       slivers: [
-        SliverToBoxAdapter(
-          child: _HomeHeader(l10n: l10n),
-        ),
+        SliverToBoxAdapter(child: _HomeHeader(l10n: l10n)),
         SliverToBoxAdapter(
           child: _QuickStartRow(
             l10n: l10n,
@@ -361,9 +358,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       selected: _selectedIds.contains(project.id),
                       onTap: () => _selectedIds.isNotEmpty
                           ? _toggleSelected(project.id)
-                          : context.push(
-                              AppRoutes.pageReviewFor(project.id),
-                            ),
+                          : context.push(AppRoutes.pageReviewFor(project.id)),
                       onLongPress: () => _toggleSelected(project.id),
                     ),
                   ),
@@ -385,9 +380,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       thumbnailPath: _viewModel.thumbnailFor(project.id),
                       onTap: () => _selectedIds.isNotEmpty
                           ? _toggleSelected(project.id)
-                          : context.push(
-                              AppRoutes.pageReviewFor(project.id),
-                            ),
+                          : context.push(AppRoutes.pageReviewFor(project.id)),
                       onFavoriteToggle: () =>
                           _viewModel.toggleFavorite(project),
                       onDelete: () => _viewModel.moveToTrash(project),
@@ -409,9 +402,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         // label + its internal padding) plus its SafeArea margins and the
         // device's own bottom safe-area inset, not just a fixed guess.
         SliverToBoxAdapter(
-          child: SizedBox(
-            height: MediaQuery.of(context).padding.bottom + 110,
-          ),
+          child: SizedBox(height: MediaQuery.of(context).padding.bottom + 110),
         ),
       ],
     );
@@ -648,39 +639,48 @@ class _HomeGlowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final top = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          AppTheme.accent.withValues(alpha: 0.28),
-          AppTheme.accent.withValues(alpha: 0.0),
-        ],
-      ).createShader(Rect.fromCircle(
-        center: Offset(size.width * 0.85, size.height * 0.08),
-        radius: size.width * 0.55,
-      ));
+      ..shader =
+          RadialGradient(
+            colors: [
+              AppTheme.accent.withValues(alpha: 0.28),
+              AppTheme.accent.withValues(alpha: 0.0),
+            ],
+          ).createShader(
+            Rect.fromCircle(
+              center: Offset(size.width * 0.85, size.height * 0.08),
+              radius: size.width * 0.55,
+            ),
+          );
     canvas.drawRect(Offset.zero & size, top);
 
     final mid = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          const Color(0xFF1DBF5A).withValues(alpha: 0.22),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(
-        center: Offset(size.width * 0.1, size.height * 0.45),
-        radius: size.width * 0.7,
-      ));
+      ..shader =
+          RadialGradient(
+            colors: [
+              const Color(0xFF1DBF5A).withValues(alpha: 0.22),
+              Colors.transparent,
+            ],
+          ).createShader(
+            Rect.fromCircle(
+              center: Offset(size.width * 0.1, size.height * 0.45),
+              radius: size.width * 0.7,
+            ),
+          );
     canvas.drawRect(Offset.zero & size, mid);
 
     final bottom = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          AppTheme.accent.withValues(alpha: 0.18),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(
-        center: Offset(size.width * 0.6, size.height * 0.92),
-        radius: size.width * 0.65,
-      ));
+      ..shader =
+          RadialGradient(
+            colors: [
+              AppTheme.accent.withValues(alpha: 0.18),
+              Colors.transparent,
+            ],
+          ).createShader(
+            Rect.fromCircle(
+              center: Offset(size.width * 0.6, size.height * 0.92),
+              radius: size.width * 0.65,
+            ),
+          );
     canvas.drawRect(Offset.zero & size, bottom);
   }
 
@@ -986,40 +986,40 @@ class _QuickToolTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
-            width: 88,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SvgPicture.asset(
-                    iconAsset,
-                    width: 28,
-                    height: 28,
-                    colorFilter: const ColorFilter.mode(
-                      AppTheme.accent,
-                      BlendMode.srcIn,
-                    ),
+          width: 88,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SvgPicture.asset(
+                  iconAsset,
+                  width: 28,
+                  height: 28,
+                  colorFilter: const ColorFilter.mode(
+                    AppTheme.accent,
+                    BlendMode.srcIn,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    label,
-                    maxLines: 2,
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: AppTheme.fontFamily,
-                      color: AppTheme.homeText,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      height: 1.15,
-                    ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    color: AppTheme.homeText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    height: 1.15,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
+      ),
     );
   }
 }
@@ -1328,11 +1328,7 @@ class _HomeDock extends StatelessWidget {
 }
 
 class _ScanFab extends StatelessWidget {
-  const _ScanFab({
-    super.key,
-    required this.tooltip,
-    required this.onPressed,
-  });
+  const _ScanFab({super.key, required this.tooltip, required this.onPressed});
 
   final String tooltip;
   final VoidCallback onPressed;
@@ -1429,9 +1425,7 @@ class _ProjectGridTile extends StatelessWidget {
         color: AppTheme.homeCard,
         borderRadius: BorderRadius.circular(16),
         boxShadow: AppTheme.cardShadow,
-        border: selected
-            ? Border.all(color: AppTheme.accent, width: 2)
-            : null,
+        border: selected ? Border.all(color: AppTheme.accent, width: 2) : null,
       ),
       child: Material(
         color: Colors.transparent,

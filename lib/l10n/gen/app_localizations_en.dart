@@ -242,7 +242,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get modeDocumentSubtitle =>
-      'Single or multi-page documents, receipts, IDs';
+      'Single or multi-page documents and receipts';
+
+  @override
+  String get modeScanId => 'Scan ID';
+
+  @override
+  String get modeScanIdSubtitle =>
+      'Scan the front, then the back, then export';
 
   @override
   String get modeBook => 'Book';
@@ -364,10 +371,36 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get captureReadyBookBody =>
-      'Start scanning opens the scanner. Photograph one page at a time. When you come back, you\'ll crop each page, then set its filters.';
+      'Photograph one page at a time. Keep scanning — pages process in the background. Tap Done when finished to open Review.';
 
   @override
   String get captureStartScanning => 'Start scanning';
+
+  @override
+  String get scanIdFrontTitle => 'Scan the front';
+
+  @override
+  String get scanIdFrontBody =>
+      'Open the scanner and photograph the front of the ID.';
+
+  @override
+  String get scanIdFrontButton => 'Scan front';
+
+  @override
+  String get scanIdBackTitle => 'Scan the back';
+
+  @override
+  String get scanIdBackBody =>
+      'Photograph the back of the ID. You\'ll then review both sides and export.';
+
+  @override
+  String get scanIdBackButton => 'Scan back';
+
+  @override
+  String get scanIdSideFront => 'Front';
+
+  @override
+  String get scanIdSideBack => 'Back';
 
   @override
   String get captureGrid => 'Grid';

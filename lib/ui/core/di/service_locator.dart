@@ -17,10 +17,13 @@ import '../../../data/services/local/file_storage_service.dart';
 import '../../../data/services/ocr/adapters/native_ocr_provider.dart';
 import '../../../data/services/ocr/ocr_platform_channel.dart';
 import '../../../data/services/remote/bookscanner_api_client.dart';
+import '../../../data/services/scanner/adapters/cunning_document_scanner_capture_provider.dart';
 import '../../../data/services/scanner/adapters/dart_book_dewarp_provider.dart';
+import '../../../data/services/scanner/adapters/mode_aware_capture_provider.dart';
+import '../../../data/services/scanner/adapters/native_capture_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_image_enhancement_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_page_detection_provider.dart';
-import '../../../data/services/scanner/adapters/cunning_document_scanner_capture_provider.dart';
+import '../../../data/services/scanner/scanner_platform_channel.dart';
 import '../../../data/services/scanner/vision_platform_channel.dart';
 import '../../../domain/providers/book_dewarp_provider.dart';
 import '../../../domain/providers/capture_provider.dart';
@@ -182,13 +185,21 @@ Future<void> setupServiceLocator() async {
   );
 }
 
-/// Primary capture uses `cunning_document_scanner` (ML Kit Document Scanner
-/// on Android, VisionKit on iOS) so we can compare its crop and shadow
-/// handling with the in-app camera. The `camera` adapter remains in the
-/// tree but is not registered.
+/// Documents and IDs use the system document scanner (ML Kit / VisionKit).
+/// Books use the in-app CameraX / AVFoundation still pipeline so each
+/// shutter returns to the live camera for the next page.
 CaptureProvider _selectCaptureProvider() {
   if (Platform.isAndroid || Platform.isIOS) {
-    return CunningDocumentScannerCaptureProvider(paths: locator<AppPaths>());
+    final platformLabel = Platform.isAndroid ? 'android' : 'ios';
+    return ModeAwareCaptureProvider(
+      document: CunningDocumentScannerCaptureProvider(
+        paths: locator<AppPaths>(),
+      ),
+      book: NativeCaptureProvider(
+        ScannerPlatformChannel(),
+        platformLabel: platformLabel,
+      ),
+    );
   }
   throw UnsupportedError(
     'No capture provider is registered for this platform. '

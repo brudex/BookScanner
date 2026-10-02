@@ -5,7 +5,23 @@ status, source files, tests, and verification evidence. Updated after every
 vertical slice. Nothing here is marked "done" unless it has been run and
 observed working, not just written.
 
-**Last updated:** 2026-09-26 (capture no longer processes each shot).
+**Last updated:** 2026-10-02 (Fast book scanning). Books use the live
+camera (`ModeAwareCaptureProvider` → `NativeCaptureProvider`): one still
+per shutter, save immediately as `processing`, enhance on a serial
+background queue, Done → existing Review. Documents/IDs stay on the
+system document scanner and the post-capture crop/filter walk.
+Domain + ModeAware unit tests passed with `--no-pub`. Capture screen
+widget tests are written but could not run on Flutter 3.38.7 / Dart
+3.10.7 (`camera ^0.12.1` requires SDK ^3.12.0; stale package_config
+also missing lucide/svg/cunning).
+
+**Previous update, 2026-10-02 (Scan ID).** New Scan offers Scan ID.
+The existing scanner captures the front, then the back (one page each),
+labels them, and opens the existing Review page to export. Document and
+book capture are unchanged. ID widget tests are written; this machine's
+Flutter SDK could not run them (packages do not resolve on Dart 3.10.7).
+
+**Previous update, 2026-09-26 (capture no longer processes each shot).**
 Shutter only saves the photo. Crop and the document filter run when the
 user taps Process pages on Review.
 
@@ -88,7 +104,7 @@ No physical iOS device available — see "Known blockers" at the end.
 | Item | Status | Evidence |
 |---|---|---|
 | Kotlin plugin registered via `MainActivity` (switched to `FlutterFragmentActivity` for `LifecycleOwner`) | ✅ | `android/.../MainActivity.kt`, `capture/CapturePlugin.kt` |
-| CameraX Preview bound to Flutter `Texture` (no vendor preview widget) | 🟡 (live `camera` preview for documents and books; pending device rebuild) | Production capture is `CameraPackageCaptureProvider` for both modes so the capture screen can show a live preview, blue page overlay, and Auto/Manual capture. `cunning_document_scanner` / `ModeAwareCaptureProvider` remain in the tree as unused fallbacks, not the primary UI. Not ✅ until seen on a physical device after rebuild. |
+| CameraX Preview bound to Flutter `Texture` (no vendor preview widget) | 🟡 (books: live native preview; documents: system scanner UI) | Production capture is `ModeAwareCaptureProvider`: books → `NativeCaptureProvider` (CameraX / AVFoundation live preview + stills); documents/IDs → `CunningDocumentScannerCaptureProvider` (ML Kit / VisionKit). Not ✅ until seen on a physical device after rebuild. |
 | ImageAnalysis with `STRATEGY_KEEP_ONLY_LATEST`, every `ImageProxy` closed | ✅ | `CaptureAnalyzer.analyze` closes in a `finally` block |
 | Classical edge/blur/exposure/motion analysis (Kotlin) | ✅ | `FrameMath.kt` — Sobel edge energy projection profile, Laplacian-variance sharpness, luminance exposure, frame-diff motion |
 | Full-resolution still capture via `ImageCapture` | ✅ | `CameraXCaptureController.captureStill`; **verified on-device**: produces a real JPEG under app-private `filesDir/captures/` |
@@ -234,13 +250,13 @@ SPEC 9.3 describes as the target — see documented limitations below.
 |---|---|---|
 | `DartBookDewarpProvider` — Sobel column-energy gutter detection, quadratic top/bottom-edge curve fitting for flattening, HSV skin-tone occlusion heuristic | ✅ | `lib/data/services/scanner/adapters/dart_book_dewarp_provider.dart`; 7 unit tests (`test/data/scanner/dart_book_dewarp_provider_test.dart`) covering clear/low-confidence gutter detection, explicit-override splitting, flat-page passthrough, real-curvature flattening, and core-region-vs-margin-only occlusion classification |
 | `BookDewarpProvider.splitSpread` extended with an optional `gutterXOverride` for manual correction, full confidence when user-specified | ✅ | `lib/domain/providers/book_dewarp_provider.dart` |
-| `ProcessBookSpreadUseCase` — orchestrates split → per-half detect/enhance/dewarp → persist two cross-linked (`spreadSiblingPageId`) pages in correct reading-order sequence per `PageOrderDirection`; `resplit()` for manual correction; `processSinglePage()` for SPEC 5.2 single-page book mode (dewarp, no split) | ✅ | `lib/domain/use_cases/process_book_spread_use_case.dart`; unit tests in `test/domain/process_book_spread_use_case_test.dart` |
+| `ProcessBookSpreadUseCase` — `processSinglePage` saves as `processing`; `enhanceSavedPage` is crop+default filter for the background queue; `processCapture`/`resplit` remain for spread tooling | ✅ (domain tests) | `lib/domain/use_cases/process_book_spread_use_case.dart`; unit tests in `test/domain/process_book_spread_use_case_test.dart` (incl. processing → enhanceSavedPage). Capture UI wiring is 🟡 — see capture row. |
 | Undivided spread photo retention (needed for manual re-split) | ✅ | `ProcessBookSpreadUseCase.spreadOriginalPathFor` — deterministic, order-independent shared storage key derived from both sibling page ids; verified round-trip in its own test |
 | Finger/occlusion → `QualityWarning.fingerCovering` + `PageStatus.needsRescan` on high-confidence text loss, warning-only (no rescan) on margin-only occlusion | ✅ | Same use-case tests; never silently removes/inpaints pixels (SPEC 9.3) |
-| Capture flow wiring: book-type projects route through the spread/single-page book pipeline instead of the document one, page order direction and scan mode read from project metadata | 🟡 (unit-tested; not re-run on device this session) | `CaptureViewModel` always runs `ProcessBookSpreadUseCase` for books (`processCapture` or `processSinglePage` per `BookScanMode`) and `CapturePageUseCase` for documents. Live stills come from `captureStill()` in both modes. Tests: `capture_screen_test.dart` (spread → 2 pages, single-page → 1 dewarped page). |
+| Capture flow wiring: book-type projects route through the single-page book pipeline with background enhance | 🟡 (unit-tested; not re-run on device this session) | `CaptureViewModel` always runs `ProcessBookSpreadUseCase.processSinglePage` for books (one still per shutter; no ML Kit batch). Page is `processing` until `enhanceSavedPage` finishes on a serial queue. Done → `AppRoutes.pageReviewFor`. Documents keep save-then-post-capture-crop. Tests: `capture_screen_test.dart`, `process_book_spread_use_case_test.dart`. |
 | Book onboarding (SPEC 5.2 step 2 + 6.10): optional title/author/language/starting page/scan mode/reading order, plus copyright acknowledgement before capture | 🟡 (unit/widget-tested; not seen on device this session) | `BookSetupScreen` / `BookSetupViewModel`; New Scan → Book goes to `/projects/:id/book-setup` instead of Capture. Continue is disabled until the copyright checkbox. Tests: `test/ui/book_setup_screen_test.dart`. |
 | `BookScanMode` persisted on `ProjectMetadata` (schema v2 `book_scan_mode`) | ✅ | Domain + SQLite migration; `test/domain/project_metadata_test.dart`, `test/data/project_repository_impl_test.dart` |
-| Mode-aware capture backend (SPEC 9.6): live `camera` for documents and books | 🟡 (unit-tested; not seen on device this session) | Production `service_locator.dart` registers `CameraPackageCaptureProvider`. `ModeAwareCaptureProvider` still has unit tests but is not the production adapter. |
+| Mode-aware capture backend (SPEC 9.6): documents/IDs = system scanner; books = live camera | 🟡 (unit-tested; not seen on device this session) | Production `service_locator.dart` registers `ModeAwareCaptureProvider` (`CunningDocumentScannerCaptureProvider` for document/ID, `NativeCaptureProvider` for book). Unit tests: `mode_aware_capture_provider_test.dart`; book still-only + Done→Review: `capture_screen_test.dart`. |
 | Manual split-correction UI (`SpreadSplitScreen`/`ViewModel`): shows the undivided spread photo with one draggable vertical gutter handle, Cancel/Save | ✅ | `lib/ui/features/page_review/{view_models,views}/spread_split_*.dart`; 3 widget tests (`test/ui/spread_split_screen_test.dart`), built against a *real* `ProcessBookSpreadUseCase` + real classical provider (not fully mocked), so the tests exercise genuine file I/O and pipeline orchestration |
 | Entry point: "Re-split spread" in Page Review's popup menu, shown only when `page.spreadSiblingPageId != null` | ✅ | `page_review_screen.dart` |
 | DI registration | ✅ | `service_locator.dart` |

@@ -505,8 +505,20 @@ abstract class AppLocalizations {
   /// Subtitle for document capture mode
   ///
   /// In en, this message translates to:
-  /// **'Single or multi-page documents, receipts, IDs'**
+  /// **'Single or multi-page documents and receipts'**
   String get modeDocumentSubtitle;
+
+  /// ID capture mode on the new-scan picker
+  ///
+  /// In en, this message translates to:
+  /// **'Scan ID'**
+  String get modeScanId;
+
+  /// Subtitle for ID capture mode
+  ///
+  /// In en, this message translates to:
+  /// **'Scan the front, then the back, then export'**
+  String get modeScanIdSubtitle;
 
   /// Book capture mode
   ///
@@ -724,7 +736,7 @@ abstract class AppLocalizations {
   /// **'Ready to scan'**
   String get captureReadyTitle;
 
-  /// Title shown before the native scanner opens for a book
+  /// Title shown before book capture starts
   ///
   /// In en, this message translates to:
   /// **'Ready to scan your book'**
@@ -736,10 +748,10 @@ abstract class AppLocalizations {
   /// **'Start scanning opens the scanner. Take your pages there. When you come back, you\'ll crop each page, then set its filters.'**
   String get captureReadyBody;
 
-  /// Explains book scanning before the scanner opens
+  /// Explains fast book scanning before the camera opens
   ///
   /// In en, this message translates to:
-  /// **'Start scanning opens the scanner. Photograph one page at a time. When you come back, you\'ll crop each page, then set its filters.'**
+  /// **'Photograph one page at a time. Keep scanning — pages process in the background. Tap Done when finished to open Review.'**
   String get captureReadyBookBody;
 
   /// Button that opens the native document scanner
@@ -747,6 +759,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Start scanning'**
   String get captureStartScanning;
+
+  /// Prompt before scanning the front of an ID
+  ///
+  /// In en, this message translates to:
+  /// **'Scan the front'**
+  String get scanIdFrontTitle;
+
+  /// Explains the front-of-ID scan step
+  ///
+  /// In en, this message translates to:
+  /// **'Open the scanner and photograph the front of the ID.'**
+  String get scanIdFrontBody;
+
+  /// Opens the scanner for the front of an ID
+  ///
+  /// In en, this message translates to:
+  /// **'Scan front'**
+  String get scanIdFrontButton;
+
+  /// Prompt before scanning the back of an ID
+  ///
+  /// In en, this message translates to:
+  /// **'Scan the back'**
+  String get scanIdBackTitle;
+
+  /// Explains the back-of-ID scan step
+  ///
+  /// In en, this message translates to:
+  /// **'Photograph the back of the ID. You\'ll then review both sides and export.'**
+  String get scanIdBackBody;
+
+  /// Opens the scanner for the back of an ID
+  ///
+  /// In en, this message translates to:
+  /// **'Scan back'**
+  String get scanIdBackButton;
+
+  /// Page label for the front of an ID
+  ///
+  /// In en, this message translates to:
+  /// **'Front'**
+  String get scanIdSideFront;
+
+  /// Page label for the back of an ID
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get scanIdSideBack;
 
   /// Toggle the camera composition grid
   ///

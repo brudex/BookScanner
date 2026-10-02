@@ -378,18 +378,22 @@ void main() {
     expect(pageRepository.pages.values.first.filter, PageFilter.original);
   });
 
-  test('processSinglePage also skips crop detect — full pic before crop UI', () async {
-    final pages = await useCase.processSinglePage(
-      capture: buildCapture(),
-      projectId: 'proj1',
-      sequence: 0,
-    );
+  test(
+    'processSinglePage stores the photo as processing without enhancing yet',
+    () async {
+      final pages = await useCase.processSinglePage(
+        capture: buildCapture(),
+        projectId: 'proj1',
+        sequence: 0,
+      );
 
-    expect(enhancementProvider.lastRequest, isNull);
-    expect(pages.single.cropPoints, Quad.fullFrame);
-    expect(pages.single.filter, PageFilter.original);
-    expect(pages.single.processedImagePath, pages.single.originalImagePath);
-  });
+      expect(enhancementProvider.lastRequest, isNull);
+      expect(pages.single.status, PageStatus.processing);
+      expect(pages.single.cropPoints, Quad.fullFrame);
+      expect(pages.single.filter, PageFilter.original);
+      expect(pages.single.processedImagePath, pages.single.originalImagePath);
+    },
+  );
 
   test(
     'processSinglePage persists the full photo without dewarp or a sibling',
@@ -402,6 +406,7 @@ void main() {
 
       expect(pages, hasLength(1));
       expect(pages.single.sequence, 3);
+      expect(pages.single.status, PageStatus.processing);
       expect(pages.single.spreadSiblingPageId, isNull);
       expect(pages.single.stages[PipelineStage.split], isNull);
       expect(pages.single.stages[PipelineStage.dewarp], isNull);
@@ -411,4 +416,22 @@ void main() {
       expect(pageRepository.pages, hasLength(1));
     },
   );
+
+  test('enhanceSavedPage crops and applies the default document filter', () async {
+    final pages = await useCase.processSinglePage(
+      capture: buildCapture(),
+      projectId: 'proj1',
+      sequence: 0,
+    );
+    final enhanced = await useCase.enhanceSavedPage(pages.single);
+
+    expect(enhancementProvider.lastRequest, isNotNull);
+    expect(enhancementProvider.lastRequest!.detectCrop, isTrue);
+    expect(enhancementProvider.lastRequest!.filter, PageFilter.enhancedColor);
+    expect(enhancementProvider.lastRequest!.splitOpenBook, isFalse);
+    expect(enhanced.status, PageStatus.ready);
+    expect(enhanced.filter, PageFilter.enhancedColor);
+    expect(enhanced.stages[PipelineStage.enhancement], isNotNull);
+    expect(enhanced.processedImagePath, isNot(pages.single.originalImagePath));
+  });
 }

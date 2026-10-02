@@ -12,10 +12,9 @@ import '../providers/page_detection_provider.dart';
 import '../repositories/page_path_allocator.dart';
 import '../repositories/page_repository.dart';
 
-/// Fast book capture. A shutter tap stores the full photo — no edge crop,
-/// document filter, curve flatten, or OCR. Two-page mode only splits the
-/// frame down the middle so the next page can be shot immediately. Crop,
-/// filters, and OCR stay manual after the session.
+/// Fast book capture. A shutter tap stores the full photo so the next page
+/// can be shot immediately. Crop and the default document filter run in the
+/// background after save; Review can still re-edit later.
 class ProcessBookSpreadUseCase {
   ProcessBookSpreadUseCase({
     required PageRepository pageRepository,
@@ -35,15 +34,11 @@ class ProcessBookSpreadUseCase {
   final BookDewarpProvider _dewarpProvider;
 
   /// Still injected so the scanner graph stays stable. Fast book capture
-  /// does not run page detection.
+  /// does not run page detection at shutter time.
   // ignore: unused_field
   final PageDetectionProvider _detectionProvider;
   final PagePathAllocator _paths;
   final Uuid _uuid;
-
-  // Fast capture does not enhance. Crop and filters run in the post-capture
-  // page walk, not from Review.
-  // ignore: unused_field
   final ImageEnhancementProvider _enhancementProvider;
 
   /// Deterministic shared storage key for the undivided two-page spread
@@ -109,7 +104,8 @@ class ProcessBookSpreadUseCase {
     return finalPages;
   }
 
-  /// Single-page book capture: the whole photo, unchanged. No split.
+  /// Single-page book capture: store the photo as [PageStatus.processing]
+  /// so the shutter can return while enhance runs elsewhere.
   Future<List<ScanPage>> processSinglePage({
     required StillCapture capture,
     required String projectId,
@@ -122,10 +118,50 @@ class ProcessBookSpreadUseCase {
       rawImagePath: capture.originalImagePath,
       projectId: projectId,
       capturedAtMs: capture.capturedAtMs,
+      status: PageStatus.processing,
     );
     final withSeq = page.copyWith(sequence: sequence);
     await _pageRepository.addPage(withSeq);
     return [withSeq];
+  }
+
+  /// Auto crop + default document filter for a page already on disk.
+  /// Safe to call from a serial background queue after shutter returns.
+  Future<ScanPage> enhanceSavedPage(ScanPage page) async {
+    final outputPath = _paths.processedPathFor(page.id, ext: 'jpg');
+    final enhancement = await _enhancementProvider.enhance(
+      EnhancementRequest(
+        sourceImagePath: page.originalImagePath,
+        outputImagePath: outputPath,
+        cropPoints: page.cropPoints ?? Quad.fullFrame,
+        rotationDegrees: page.rotationDegrees,
+        filter: kDefaultCaptureFilter,
+        detectCrop: true,
+        splitOpenBook: false,
+        removeShadowsAndStains: true,
+      ),
+    );
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final updated = page.copyWith(
+      processedImagePath: enhancement.processedImagePath,
+      thumbnailPath: enhancement.thumbnailPath,
+      cropPoints: enhancement.cropPoints,
+      filter: kDefaultCaptureFilter,
+      qualityScore: enhancement.qualityScore,
+      status: enhancement.qualityScore < 0.35
+          ? PageStatus.needsRescan
+          : PageStatus.ready,
+      stages: {
+        ...page.stages,
+        PipelineStage.enhancement: StageRecord(
+          version: 1,
+          providerInfo: enhancement.providerInfo,
+          completedAtMs: now,
+        ),
+      },
+    );
+    await _pageRepository.updatePage(updated);
+    return updated;
   }
 
   /// Re-splits the saved full photo at [gutterX] and stores both halves
@@ -169,6 +205,7 @@ class ProcessBookSpreadUseCase {
     required String rawImagePath,
     required String projectId,
     required int? capturedAtMs,
+    PageStatus status = PageStatus.ready,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final originalPath = _paths.originalPathFor(pageId, ext: 'jpg');
@@ -188,7 +225,7 @@ class ProcessBookSpreadUseCase {
       qualityScore: 0.9,
       warnings: const {},
       spreadSiblingPageId: siblingId,
-      status: PageStatus.ready,
+      status: status,
       capturedAtMs: capturedAtMs,
       stages: {
         if (siblingId != null)

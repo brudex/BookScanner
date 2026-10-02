@@ -189,10 +189,24 @@ void main() {
         find.byKey(const ValueKey('reviewExportButton')),
       );
       expect(exportButton.onPressed, isNotNull);
+      final cameraSize = tester.getSize(
+        find.byKey(const ValueKey('reviewAddCamera')),
+      );
+      final gallerySize = tester.getSize(
+        find.byKey(const ValueKey('reviewAddGallery')),
+      );
+      final filesSize = tester.getSize(
+        find.byKey(const ValueKey('reviewAddFromFiles')),
+      );
+      expect(filesSize, cameraSize);
+      expect(filesSize, gallerySize);
       await tester.tap(find.byKey(const ValueKey('reviewExportButton')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('reviewExportPdf')), findsOneWidget);
-      expect(find.byKey(const ValueKey('reviewExportMarkdown')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('reviewExportMarkdown')),
+        findsOneWidget,
+      );
       expect(find.byKey(const ValueKey('reviewExportEpub')), findsOneWidget);
       expect(find.byKey(const ValueKey('reviewPdfOptions')), findsOneWidget);
       expect(find.byKey(const ValueKey('reviewMarkdownOptions')), findsNothing);
@@ -200,7 +214,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('reviewExportMarkdown')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('reviewPdfOptions')), findsNothing);
-      expect(find.byKey(const ValueKey('reviewMarkdownOptions')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('reviewMarkdownOptions')),
+        findsOneWidget,
+      );
 
       await tester.tap(find.byKey(const ValueKey('reviewExportEpub')));
       await tester.pumpAndSettle();

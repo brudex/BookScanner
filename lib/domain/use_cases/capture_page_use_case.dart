@@ -103,11 +103,13 @@ class CapturePageUseCase {
     required StillCapture capture,
     required String projectId,
     required int sequence,
+    String? logicalPageLabel,
   }) async {
     final page = ScanPage(
       id: _uuid.v4(),
       projectId: projectId,
       sequence: sequence,
+      logicalPageLabel: logicalPageLabel,
       originalImagePath: capture.originalImagePath,
       processedImagePath: capture.originalImagePath,
       thumbnailPath: capture.originalImagePath,
@@ -185,7 +187,10 @@ class CapturePageUseCase {
     double? threshold,
   }) async {
     final resolvedCrop = cropPoints ?? page.cropPoints ?? Quad.fullFrame;
-    final outputPath = _paths.processedPathFor('${page.id}_preview', ext: 'jpg');
+    final outputPath = _paths.processedPathFor(
+      '${page.id}_preview',
+      ext: 'jpg',
+    );
     final enhancement = await _enhancementProvider.enhance(
       EnhancementRequest(
         sourceImagePath: page.originalImagePath,
