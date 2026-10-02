@@ -248,8 +248,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get modeScanId => 'Scan ID';
 
   @override
-  String get modeScanIdSubtitle =>
-      'Scan the front, then the back, then export';
+  String get modeScanIdSubtitle => 'Scan the front, then the back, then export';
 
   @override
   String get modeBook => 'Book';
