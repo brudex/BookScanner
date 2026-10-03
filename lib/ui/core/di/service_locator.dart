@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 
 import '../../../data/repositories/export_job_repository_impl.dart';
@@ -19,12 +20,10 @@ import '../../../data/services/ocr/ocr_platform_channel.dart';
 import '../../../data/services/remote/bookscanner_api_client.dart';
 import '../../../data/services/scanner/adapters/cunning_document_scanner_capture_provider.dart';
 import '../../../data/services/scanner/adapters/dart_book_dewarp_provider.dart';
-import '../../../data/services/scanner/adapters/mode_aware_capture_provider.dart';
-import '../../../data/services/scanner/adapters/native_capture_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_image_enhancement_provider.dart';
 import '../../../data/services/scanner/adapters/native_opencv_page_detection_provider.dart';
-import '../../../data/services/scanner/scanner_platform_channel.dart';
 import '../../../data/services/scanner/vision_platform_channel.dart';
+import '../../../domain/models/capture_models.dart';
 import '../../../domain/providers/book_dewarp_provider.dart';
 import '../../../domain/providers/capture_provider.dart';
 import '../../../domain/providers/conversion_api.dart';
@@ -41,6 +40,8 @@ import '../../../domain/repositories/project_repository.dart';
 import '../../../domain/repositories/settings_repository.dart';
 import '../../../domain/repositories/working_session_path_allocator.dart';
 import '../../../domain/use_cases/capture_page_use_case.dart';
+import '../../../domain/use_cases/clean_scanned_pages_use_case.dart';
+import '../../../domain/use_cases/import_pages_use_case.dart';
 import '../../../domain/use_cases/detect_page_anomalies_use_case.dart';
 import '../../../domain/use_cases/export_images_use_case.dart';
 import '../../../domain/use_cases/export_on_server_use_case.dart';
@@ -118,6 +119,21 @@ Future<void> setupServiceLocator() async {
       fileStorage: locator<AppPaths>(),
     ),
   );
+  // One queue for the app: it keeps cleaning pages after Capture closes.
+  locator.registerLazySingleton<CleanScannedPagesUseCase>(
+    () => CleanScannedPagesUseCase(
+      pageRepository: locator<PageRepository>(),
+      capturePageUseCase: locator<CapturePageUseCase>(),
+    ),
+  );
+  locator.registerFactory<ImportPagesUseCase>(
+    () => ImportPagesUseCase(
+      capturePageUseCase: locator<CapturePageUseCase>(),
+      paths: locator<AppPaths>(),
+      rasterizer: locator<PdfRasterizerProvider>(),
+      storeImage: _storeBoundedImage,
+    ),
+  );
   locator.registerFactory<ProcessBookSpreadUseCase>(
     () => ProcessBookSpreadUseCase(
       pageRepository: locator<PageRepository>(),
@@ -185,20 +201,32 @@ Future<void> setupServiceLocator() async {
   );
 }
 
-/// Documents and IDs use the system document scanner (ML Kit / VisionKit).
-/// Books use the in-app CameraX / AVFoundation still pipeline so each
-/// shutter returns to the live camera for the next page.
+/// Copies a scanned or imported image into app storage with its long side
+/// capped at [StoredPageLimits.maxLongSidePx] (native, low-memory decode).
+Future<void> _storeBoundedImage(String source, String dest) async {
+  try {
+    await VisionPlatformChannel().downscaleStill(
+      sourcePath: source,
+      outputPath: dest,
+      maxLongSide: StoredPageLimits.maxLongSidePx,
+    );
+  } on PlatformException {
+    // Keep the page even if bounding it failed; Review can still show it,
+    // just more slowly.
+    await File(source).copy(dest);
+  }
+}
+
+/// Documents, IDs and books all use the system document scanner (ML Kit on
+/// Android, VisionKit on iOS): its trained page detector is far more
+/// reliable than the in-app OpenCV preview. The in-app CameraX/AVFoundation
+/// pipeline (`NativeCaptureProvider` behind `ModeAwareCaptureProvider`) is
+/// kept in the repo, unregistered, so books can move back to it later.
 CaptureProvider _selectCaptureProvider() {
   if (Platform.isAndroid || Platform.isIOS) {
-    final platformLabel = Platform.isAndroid ? 'android' : 'ios';
-    return ModeAwareCaptureProvider(
-      document: CunningDocumentScannerCaptureProvider(
-        paths: locator<AppPaths>(),
-      ),
-      book: NativeCaptureProvider(
-        ScannerPlatformChannel(),
-        platformLabel: platformLabel,
-      ),
+    return CunningDocumentScannerCaptureProvider(
+      paths: locator<AppPaths>(),
+      persistStill: _storeBoundedImage,
     );
   }
   throw UnsupportedError(

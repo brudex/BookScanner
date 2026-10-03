@@ -86,6 +86,21 @@ class VisionPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     }
                 }
             }
+            "downscaleStill" -> {
+                val source = call.argument<String>("sourcePath") ?: return result.error("PROCESSING_FAILED", "sourcePath required", null)
+                val dest = call.argument<String>("outputPath") ?: return result.error("PROCESSING_FAILED", "outputPath required", null)
+                val maxLongSide = call.argument<Int>("maxLongSide") ?: return result.error("PROCESSING_FAILED", "maxLongSide required", null)
+                worker.execute {
+                    try {
+                        val r = StillDownscaler.downscale(source, dest, maxLongSide)
+                        main.post {
+                            result.success(mapOf("width" to r.width, "height" to r.height, "downscaled" to r.downscaled))
+                        }
+                    } catch (e: Throwable) {
+                        main.post { result.error("PROCESSING_FAILED", e.message, null) }
+                    }
+                }
+            }
             "scoreStill" -> {
                 val path = call.argument<String>("path") ?: return result.error("PROCESSING_FAILED", "path required", null)
                 worker.execute {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:bookscanner/domain/models/geometry.dart';
@@ -57,6 +58,12 @@ class _FakeDetectionProvider implements PageDetectionProvider {
 class _FakeEnhancementProvider implements ImageEnhancementProvider {
   EnhancementRequest? lastRequest;
 
+  /// When set, each enhance() waits on the next completer in this list.
+  List<Completer<void>>? gates;
+  int inFlight = 0;
+  int maxInFlight = 0;
+  final requests = <EnhancementRequest>[];
+
   @override
   ProviderInfo get info =>
       const ProviderInfo(providerName: 'fake', adapterVersion: '1');
@@ -67,6 +74,12 @@ class _FakeEnhancementProvider implements ImageEnhancementProvider {
   @override
   Future<EnhancementResult> enhance(EnhancementRequest request) async {
     lastRequest = request;
+    requests.add(request);
+    inFlight++;
+    if (inFlight > maxInFlight) maxInFlight = inFlight;
+    final gate = gates?.removeAt(0);
+    if (gate != null) await gate.future;
+    inFlight--;
     return EnhancementResult(
       processedImagePath: request.outputImagePath,
       thumbnailPath: request.outputImagePath,
@@ -264,6 +277,56 @@ void main() {
 
       expect(missingPageViewModel.error, isNotNull);
       expect(await missingPageViewModel.apply(), isFalse);
+    },
+  );
+
+  test('slider drags never run two preview renders at once, and the last '
+      'values are still rendered', () async {
+    await viewModel.initialize();
+    final first = Completer<void>();
+    final second = Completer<void>();
+    enhancementProvider.gates = [first, second];
+
+    viewModel.setBrightness(30);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    // First render is stuck; keep dragging with pauses past the debounce.
+    viewModel.setBrightness(50);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    viewModel.setBrightness(80);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
+    expect(enhancementProvider.requests, hasLength(1));
+    first.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    second.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(enhancementProvider.maxInFlight, 1);
+    // One follow-up render with the latest value, not one per pause.
+    expect(enhancementProvider.requests, hasLength(2));
+    expect(enhancementProvider.requests.last.brightness, 80);
+    expect(viewModel.previewRendering, isFalse);
+  });
+
+  test(
+    'progress shows from the tap and clears when the render is done',
+    () async {
+      await viewModel.initialize();
+      final gate = Completer<void>();
+      enhancementProvider.gates = [gate];
+
+      viewModel.selectFilter(PageFilter.blackAndWhite);
+      expect(viewModel.previewRendering, isTrue);
+
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      expect(viewModel.previewRendering, isTrue);
+      gate.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(viewModel.previewRendering, isFalse);
+
+      // Going back to the saved look needs no render and must not stay busy.
+      viewModel.selectFilter(PageFilter.grayscale);
+      expect(viewModel.previewRendering, isFalse);
     },
   );
 }

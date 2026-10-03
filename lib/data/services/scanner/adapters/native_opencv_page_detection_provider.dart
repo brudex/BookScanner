@@ -27,7 +27,7 @@ class NativeOpenCvPageDetectionProvider implements PageDetectionProvider {
     try {
       final availability = await _channel.isAvailable();
       if (!availability.available) {
-        return _fallback.detectQuad(imagePath);
+        return await _fallback.detectQuad(imagePath);
       }
       final result = await _channel.detectStill(imagePath);
       if (result.confidence < DetectionThresholds.minConfidence) {

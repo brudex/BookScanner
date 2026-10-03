@@ -37,8 +37,17 @@ class _FakePageRepository implements PageRepository {
   @override
   Future<void> duplicatePage(String pageId) async {}
 
+  /// Last order passed in; sequences are rewritten like the real repository.
+  List<String>? lastOrder;
+
   @override
-  Future<void> reorderPages(String projectId, List<String> order) async {}
+  Future<void> reorderPages(String projectId, List<String> order) async {
+    lastOrder = order;
+    for (var i = 0; i < order.length; i++) {
+      final page = pages[order[i]];
+      if (page != null) pages[page.id] = page.copyWith(sequence: i);
+    }
+  }
 
   @override
   Stream<List<ScanPage>> watchPages(String projectId) => const Stream.empty();
@@ -245,24 +254,27 @@ void main() {
     expect(pages[1].sequence, 1);
   });
 
-  test('records only the center split — no detect, filter, or dewarp', () async {
-    final pages = await useCase.processCapture(
-      capture: buildCapture(),
-      projectId: 'proj1',
-      sequence: 0,
-    );
+  test(
+    'records only the center split — no detect, filter, or dewarp',
+    () async {
+      final pages = await useCase.processCapture(
+        capture: buildCapture(),
+        projectId: 'proj1',
+        sequence: 0,
+      );
 
-    expect(dewarpProvider.lastGutterOverride, 0.5);
-    expect(dewarpProvider.dewarpCalls, 0);
-    for (final page in pages) {
-      expect(page.stages[PipelineStage.split], isNotNull);
-      expect(page.stages[PipelineStage.detection], isNull);
-      expect(page.stages[PipelineStage.enhancement], isNull);
-      expect(page.stages[PipelineStage.dewarp], isNull);
-      expect(page.cropPoints, Quad.fullFrame);
-      expect(page.filter, PageFilter.original);
-    }
-  });
+      expect(dewarpProvider.lastGutterOverride, 0.5);
+      expect(dewarpProvider.dewarpCalls, 0);
+      for (final page in pages) {
+        expect(page.stages[PipelineStage.split], isNotNull);
+        expect(page.stages[PipelineStage.detection], isNull);
+        expect(page.stages[PipelineStage.enhancement], isNull);
+        expect(page.stages[PipelineStage.dewarp], isNull);
+        expect(page.cropPoints, Quad.fullFrame);
+        expect(page.filter, PageFilter.original);
+      }
+    },
+  );
 
   test('book capture does not run finger detection or mark a rescan', () async {
     dewarpProvider.occlusionOnNextDewarp = true;
@@ -365,18 +377,21 @@ void main() {
     },
   );
 
-  test('already-split halves skip crop re-detect (full-frame page image)', () async {
-    await useCase.processCapture(
-      capture: buildCapture(),
-      projectId: 'proj1',
-      sequence: 0,
-    );
+  test(
+    'already-split halves skip crop re-detect (full-frame page image)',
+    () async {
+      await useCase.processCapture(
+        capture: buildCapture(),
+        projectId: 'proj1',
+        sequence: 0,
+      );
 
-    expect(enhancementProvider.lastRequest, isNull);
-    expect(dewarpProvider.dewarpCalls, 0);
-    expect(pageRepository.pages.values.first.cropPoints, Quad.fullFrame);
-    expect(pageRepository.pages.values.first.filter, PageFilter.original);
-  });
+      expect(enhancementProvider.lastRequest, isNull);
+      expect(dewarpProvider.dewarpCalls, 0);
+      expect(pageRepository.pages.values.first.cropPoints, Quad.fullFrame);
+      expect(pageRepository.pages.values.first.filter, PageFilter.original);
+    },
+  );
 
   test(
     'processSinglePage stores the photo as processing without enhancing yet',
@@ -417,21 +432,109 @@ void main() {
     },
   );
 
-  test('enhanceSavedPage crops and applies the default document filter', () async {
-    final pages = await useCase.processSinglePage(
-      capture: buildCapture(),
-      projectId: 'proj1',
-      sequence: 0,
-    );
-    final enhanced = await useCase.enhanceSavedPage(pages.single);
+  test(
+    'enhanceSavedPage crops and applies the default document filter',
+    () async {
+      final pages = await useCase.processSinglePage(
+        capture: buildCapture(),
+        projectId: 'proj1',
+        sequence: 0,
+      );
+      final enhanced = await useCase.enhanceSavedPage(pages.single);
 
-    expect(enhancementProvider.lastRequest, isNotNull);
-    expect(enhancementProvider.lastRequest!.detectCrop, isTrue);
-    expect(enhancementProvider.lastRequest!.filter, PageFilter.enhancedColor);
-    expect(enhancementProvider.lastRequest!.splitOpenBook, isFalse);
-    expect(enhanced.status, PageStatus.ready);
-    expect(enhanced.filter, PageFilter.enhancedColor);
-    expect(enhanced.stages[PipelineStage.enhancement], isNotNull);
-    expect(enhanced.processedImagePath, isNot(pages.single.originalImagePath));
-  });
+      expect(enhancementProvider.lastRequest, isNotNull);
+      expect(enhancementProvider.lastRequest!.detectCrop, isTrue);
+      expect(enhancementProvider.lastRequest!.filter, PageFilter.enhancedColor);
+      expect(enhancementProvider.lastRequest!.splitOpenBook, isFalse);
+      expect(enhanced.status, PageStatus.ready);
+      expect(enhanced.filter, PageFilter.enhancedColor);
+      expect(enhanced.stages[PipelineStage.enhancement], isNotNull);
+      expect(
+        enhanced.processedImagePath,
+        isNot(pages.single.originalImagePath),
+      );
+    },
+  );
+
+  Future<ScanPage> addSavedPage(String id, int sequence) async {
+    final path = p.join(tmpDir.path, '$id-scan.jpg');
+    File(spreadImagePath).copySync(path);
+    final page = ScanPage(
+      id: id,
+      projectId: 'proj1',
+      sequence: sequence,
+      originalImagePath: path,
+      processedImagePath: path,
+      thumbnailPath: path,
+      status: PageStatus.ready,
+    );
+    await pageRepository.addPage(page);
+    return page;
+  }
+
+  test(
+    'splitSavedPage splits one spread page in place and shifts later pages',
+    () async {
+      await addSavedPage('a', 0);
+      final spread = await addSavedPage('b', 1);
+      await addSavedPage('c', 2);
+
+      final halves = await useCase.splitSavedPage(spread);
+
+      expect(halves, hasLength(2));
+      expect(halves[0].id, 'b', reason: 'left half keeps the page id');
+      expect(halves[0].spreadSiblingPageId, halves[1].id);
+      expect(halves[1].spreadSiblingPageId, 'b');
+      expect(pageRepository.lastOrder, ['a', 'b', halves[1].id, 'c']);
+      expect(pageRepository.pages['c']!.sequence, 3);
+      expect(dewarpProvider.splitCalls, 1);
+      // The undivided photo is kept so the gutter can be adjusted later.
+      final spreadCopy = ProcessBookSpreadUseCase.spreadOriginalPathFor(
+        _FakePaths(tmpDir),
+        'b',
+        halves[1].id,
+      );
+      expect(File(spreadCopy).existsSync(), isTrue);
+      // The superseded single-page scan file is removed.
+      expect(File(spread.originalImagePath).existsSync(), isFalse);
+    },
+  );
+
+  test(
+    'splitSavedPage puts the right half first for right-to-left books',
+    () async {
+      final spread = await addSavedPage('b', 0);
+
+      final halves = await useCase.splitSavedPage(
+        spread,
+        pageOrderDirection: PageOrderDirection.rightToLeft,
+      );
+
+      expect(halves[1].id, 'b');
+      expect(pageRepository.lastOrder, [halves[0].id, 'b']);
+    },
+  );
+
+  test(
+    'splitSavedPage keeps image files shared with a duplicated page',
+    () async {
+      final spread = await addSavedPage('b', 0);
+      // Same files, as PageRepository.duplicatePage produces.
+      await pageRepository.addPage(
+        ScanPage(
+          id: 'b-copy',
+          projectId: 'proj1',
+          sequence: 1,
+          originalImagePath: spread.originalImagePath,
+          processedImagePath: spread.processedImagePath,
+          thumbnailPath: spread.thumbnailPath,
+          status: PageStatus.ready,
+        ),
+      );
+
+      await useCase.splitSavedPage(spread);
+
+      expect(File(spread.originalImagePath).existsSync(), isTrue);
+    },
+  );
 }

@@ -15,6 +15,7 @@ import '../../../core/di/service_locator.dart';
 import '../../export/views/export_job_status_views.dart';
 import '../view_models/page_operations_view_model.dart';
 import 'source_picker_sheet.dart';
+import '../../../core/widgets/page_image.dart';
 
 /// Multi-source page-composition screen (SPEC 6.5 "editing"): merges pages
 /// from other projects, imported PDFs, or images into one working document,
@@ -297,7 +298,7 @@ class _ComposedPageTile extends StatelessWidget {
                 child: RotatedBox(
                   quarterTurns: page.rotationDegrees ~/ 90,
                   child: hasThumb
-                      ? Image.file(File(page.imagePath), fit: BoxFit.cover)
+                      ? PageImage(path: page.imagePath)
                       : const ColoredBox(color: Colors.black12),
                 ),
               ),

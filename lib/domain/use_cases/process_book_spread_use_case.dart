@@ -164,6 +164,88 @@ class ProcessBookSpreadUseCase {
     return updated;
   }
 
+  /// Splits one saved page that holds an open two-page spread into two
+  /// pages at the centre, in place. The left half keeps [page]'s id; the
+  /// right half is inserted next to it, so later pages shift down by one.
+  /// The undivided photo is kept at [spreadOriginalPathFor] so the gutter
+  /// can be adjusted afterwards with [resplit]. Returns both halves in
+  /// reading order (respecting [pageOrderDirection]), already persisted.
+  Future<List<ScanPage>> splitSavedPage(
+    ScanPage page, {
+    PageOrderDirection pageOrderDirection = PageOrderDirection.leftToRight,
+  }) async {
+    final leftId = page.id;
+    final rightId = _uuid.v4();
+    // The processed image is what the user sees: for system-scanner pages
+    // it is the flattened scan, which is what should be split.
+    final sourcePath = page.processedImagePath ?? page.originalImagePath;
+    final spreadOriginalPath = spreadOriginalPathFor(_paths, leftId, rightId);
+    await File(sourcePath).copy(spreadOriginalPath);
+
+    final split = await _dewarpProvider.splitSpread(
+      spreadOriginalPath,
+      gutterXOverride: 0.5,
+    );
+    final left = await _buildPage(
+      pageId: leftId,
+      siblingId: rightId,
+      rawImagePath: split.leftPageImagePath,
+      projectId: page.projectId,
+      capturedAtMs: page.capturedAtMs,
+    );
+    final right = await _buildPage(
+      pageId: rightId,
+      siblingId: leftId,
+      rawImagePath: split.rightPageImagePath,
+      projectId: page.projectId,
+      capturedAtMs: page.capturedAtMs,
+    );
+
+    final ordered = pageOrderDirection == PageOrderDirection.rightToLeft
+        ? [right, left]
+        : [left, right];
+    final existing = await _pageRepository.getPages(page.projectId)
+      ..sort((a, b) => a.sequence.compareTo(b.sequence));
+    final newOrder = <String>[
+      for (final p in existing)
+        if (p.id == page.id) ...ordered.map((o) => o.id) else p.id,
+    ];
+
+    await _pageRepository.updatePage(left.copyWith(sequence: page.sequence));
+    await _pageRepository.addPage(right.copyWith(sequence: page.sequence + 1));
+    await _pageRepository.reorderPages(page.projectId, newOrder);
+
+    // The page's previous image files are superseded by the spread copy
+    // and the two halves; remove them so the split does not leak storage.
+    // Duplicated pages share files, so keep anything another page uses.
+    final keep = {
+      spreadOriginalPath,
+      left.originalImagePath,
+      right.originalImagePath,
+      for (final p in existing)
+        if (p.id != page.id) ...[
+          p.originalImagePath,
+          ?p.processedImagePath,
+          ?p.thumbnailPath,
+        ],
+    };
+    for (final path in {
+      page.originalImagePath,
+      page.processedImagePath,
+      page.thumbnailPath,
+    }) {
+      if (path == null || keep.contains(path)) continue;
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    }
+
+    final base = newOrder.indexOf(ordered.first.id);
+    return [
+      for (var i = 0; i < ordered.length; i++)
+        ordered[i].copyWith(sequence: base + i),
+    ];
+  }
+
   /// Re-splits the saved full photo at [gutterX] and stores both halves
   /// as-is. Does not crop, filter, or dewarp.
   Future<List<ScanPage>> resplit({

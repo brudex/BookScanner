@@ -236,8 +236,16 @@ object OpenCvScanEngine {
         val small = Mat()
         val scale = 300.0 / src.cols()
         Imgproc.resize(src, small, Size(300.0, max(1.0, src.rows() * scale)))
+        // Erase ink before estimating the paper's lighting: blurring the
+        // text in darkened the estimate and faded dense writing, and a wide
+        // blur smeared hard-edged book shadows so their outline remained.
+        // 7x7 max filter + sigma 4 at 300 px, tuned on a shadowed notebook
+        // page (mirrors the Dart pipeline's _flattenIllumination).
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(7.0, 7.0))
+        Imgproc.dilate(small, small, kernel)
+        kernel.release()
         val blur = Mat()
-        Imgproc.GaussianBlur(small, blur, Size(0.0, 0.0), 24.0)
+        Imgproc.GaussianBlur(small, blur, Size(0.0, 0.0), 4.0)
         small.release()
         val bg = Mat()
         Imgproc.resize(blur, bg, src.size(), 0.0, 0.0, Imgproc.INTER_LINEAR)

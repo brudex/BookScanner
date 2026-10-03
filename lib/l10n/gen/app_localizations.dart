@@ -760,6 +760,18 @@ abstract class AppLocalizations {
   /// **'Book Scan'**
   String get bookScanTitle;
 
+  /// Shown while pages returned by the system scanner are saved to the book
+  ///
+  /// In en, this message translates to:
+  /// **'Saving pages…'**
+  String get bookScanSaving;
+
+  /// Reopens the system page scanner after it failed to start
+  ///
+  /// In en, this message translates to:
+  /// **'Open scanner'**
+  String get bookScanOpenScanner;
+
   /// Finish book capture and open Review after background processing
   ///
   /// In en, this message translates to:
@@ -1126,6 +1138,18 @@ abstract class AppLocalizations {
   /// **'Delete'**
   String get delete;
 
+  /// Confirmation before deleting pages from Review
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Delete this page?} other{Delete {count} pages?}}'**
+  String deletePagesConfirmTitle(int count);
+
+  /// Warning under the delete-pages confirmation title
+  ///
+  /// In en, this message translates to:
+  /// **'This can\'t be undone.'**
+  String get deletePagesConfirmBody;
+
   /// Warning badge for a likely duplicate page
   ///
   /// In en, this message translates to:
@@ -1402,6 +1426,12 @@ abstract class AppLocalizations {
   /// **'Re-split spread'**
   String get spreadSplitAction;
 
+  /// Menu action on a book page that holds a whole two-page spread; splits it at the centre into two pages
+  ///
+  /// In en, this message translates to:
+  /// **'Split into two pages'**
+  String get splitIntoTwoPagesAction;
+
   /// Title of the manual book-spread split correction screen
   ///
   /// In en, this message translates to:
@@ -1599,6 +1629,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Export failed'**
   String get exportFailed;
+
+  /// Shown over the page preview while a filter or adjustment is being rendered
+  ///
+  /// In en, this message translates to:
+  /// **'Applying…'**
+  String get applyingChanges;
+
+  /// Shown over the page preview while an edit is being saved
+  ///
+  /// In en, this message translates to:
+  /// **'Saving…'**
+  String get savingChanges;
+
+  /// Shown when saving a crop, filter or split edit fails
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save your changes. Please try again.'**
+  String get saveChangesFailed;
+
+  /// Shown when a gallery or PDF import added no pages (failed, or the file had none)
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t import any pages from that file.'**
+  String get importFailed;
 
   /// Share the exported file
   ///

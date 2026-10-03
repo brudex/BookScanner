@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +8,7 @@ import '../../../../domain/use_cases/process_book_spread_use_case.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../core/di/service_locator.dart';
 import '../view_models/spread_split_view_model.dart';
+import '../../../core/widgets/page_image.dart';
 
 /// Manual book-spread split correction screen (SPEC 5.2 acceptance
 /// criterion: "the app creates two ordered pages and lets the user correct
@@ -59,14 +58,16 @@ class _SpreadSplitScreenState extends State<SpreadSplitScreen> {
   }
 
   Future<void> _apply() async {
+    // apply() marks saving synchronously; ignore a second tap mid-save.
+    if (_viewModel.saving) return;
     final ok = await _viewModel.apply();
     if (!mounted) return;
     if (ok) {
       context.pop();
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${_viewModel.error}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).saveChangesFailed)),
+      );
     }
   }
 
@@ -118,7 +119,7 @@ class _SpreadSplitScreenState extends State<SpreadSplitScreen> {
                     top: originY,
                     width: destSize.width,
                     height: destSize.height,
-                    child: Image.file(File(imagePath), fit: BoxFit.fill),
+                    child: PageImage(path: imagePath, fit: BoxFit.fill),
                   ),
                   Positioned(
                     left: lineX - 1,

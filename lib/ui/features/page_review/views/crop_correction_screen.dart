@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -16,6 +15,7 @@ import '../../../core/di/service_locator.dart';
 import '../../../core/discard_unsaved_capture.dart';
 import '../../../core/theme/app_theme.dart';
 import '../view_models/crop_correction_view_model.dart';
+import '../../../core/widgets/page_image.dart';
 
 /// Crop outline, handles, and Next — matches app green accent.
 const _accent = AppTheme.accent;
@@ -99,14 +99,16 @@ class _CropCorrectionScreenState extends State<CropCorrectionScreen> {
   }
 
   Future<void> _onNext() async {
+    // apply() marks saving synchronously; ignore a second tap mid-save.
+    if (_viewModel.saving) return;
     _leavingForward = true;
     final ok = await _viewModel.apply();
     if (!mounted) return;
     if (!ok) {
       _leavingForward = false;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${_viewModel.error}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).saveChangesFailed)),
+      );
       return;
     }
     if (widget.flowMode == CropFlowMode.postCapture) {
@@ -343,8 +345,8 @@ class _CropCorrectionScreenState extends State<CropCorrectionScreen> {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                Image.file(
-                                  File(page.originalImagePath),
+                                PageImage(
+                                  path: page.originalImagePath,
                                   fit: BoxFit.fill,
                                 ),
                                 GestureDetector(

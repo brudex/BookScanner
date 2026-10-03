@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -8,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../../domain/models/project.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/page_image.dart';
 
 enum ProjectRowAction {
   share,
@@ -286,9 +285,7 @@ class ProjectTypeBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: book
-            ? const Color(0x3322A8FF)
-            : const Color(0x333DFF8A),
+        color: book ? const Color(0x3322A8FF) : const Color(0x333DFF8A),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -341,10 +338,8 @@ class ProjectThumbnail extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: path == null
             ? fallback
-            : Image.file(
-                File(path!),
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
+            : PageImage(
+                path: path!,
                 errorBuilder: (context, error, stackTrace) => fallback,
               ),
       ),

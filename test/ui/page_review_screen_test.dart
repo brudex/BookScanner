@@ -274,4 +274,58 @@ void main() {
       expect(find.byKey(const ValueKey('page-p1')), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'page menu has no Recognize text, and Delete asks before removing',
+    (tester) async {
+      final pageRepository = _FakePageRepository();
+      await pageRepository.addPage(
+        const ScanPage(
+          id: 'p1',
+          projectId: 'proj1',
+          sequence: 0,
+          originalImagePath: '/tmp/p1.jpg',
+          status: PageStatus.ready,
+        ),
+      );
+      final viewModel = PageReviewViewModel(
+        projectId: 'proj1',
+        pageRepository: pageRepository,
+        detectAnomaliesUseCase: DetectPageAnomaliesUseCase(
+          pageRepository: pageRepository,
+          ocrRepository: _FakeOcrRepository(),
+        ),
+        capturePageUseCase: CapturePageUseCase(
+          pageRepository: pageRepository,
+          enhancementProvider: _FakeImageEnhancementProvider(),
+          detectionProvider: _FakePageDetectionProvider(),
+          fileStorage: _FakePagePathAllocator(),
+        ),
+      );
+      await tester.pumpWidget(
+        _wrap(PageReviewScreen(projectId: 'proj1', viewModel: viewModel)),
+      );
+      pageRepository.emitPages('proj1');
+      await tester.pump();
+
+      Future<void> openMenuAndTapDelete() async {
+        await tester.tap(find.byKey(const ValueKey('pageMenu-p1')));
+        await tester.pumpAndSettle();
+        expect(find.text('Recognize text'), findsNothing);
+        await tester.tap(find.text('Delete'));
+        await tester.pumpAndSettle();
+        expect(find.text('Delete this page?'), findsOneWidget);
+      }
+
+      await openMenuAndTapDelete();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(await pageRepository.getPage('p1'), isNotNull);
+
+      await openMenuAndTapDelete();
+      await tester.tap(find.byKey(const ValueKey('confirmDeletePagesButton')));
+      await tester.pumpAndSettle();
+      expect(await pageRepository.getPage('p1'), isNull);
+    },
+  );
 }

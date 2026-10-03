@@ -51,6 +51,23 @@ class EnhancementRequest {
   /// Copy [sourceImagePath] to [outputImagePath] and thumbnail only.
   /// Used for native document-scanner output that is already cropped.
   final bool passthrough;
+
+  EnhancementRequest withSource(String sourceImagePath) => EnhancementRequest(
+    sourceImagePath: sourceImagePath,
+    outputImagePath: outputImagePath,
+    cropPoints: cropPoints,
+    rotationDegrees: rotationDegrees,
+    filter: filter,
+    fineRotationDegrees: fineRotationDegrees,
+    brightness: brightness,
+    contrast: contrast,
+    sharpness: sharpness,
+    threshold: threshold,
+    removeShadowsAndStains: removeShadowsAndStains,
+    detectCrop: detectCrop,
+    splitOpenBook: splitOpenBook,
+    passthrough: passthrough,
+  );
 }
 
 class EnhancementResult {

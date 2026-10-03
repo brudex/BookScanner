@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../../domain/models/geometry.dart';
+import '../../../../domain/models/project.dart';
 import '../../../../domain/models/scan_page.dart';
 import '../../../../domain/repositories/page_repository.dart';
+import '../../../../domain/repositories/project_repository.dart';
 import '../../../../domain/use_cases/capture_page_use_case.dart';
 import '../../../../domain/use_cases/detect_page_anomalies_use_case.dart';
 
@@ -14,10 +16,27 @@ class PageReviewViewModel extends ChangeNotifier {
     required PageRepository pageRepository,
     required DetectPageAnomaliesUseCase detectAnomaliesUseCase,
     required CapturePageUseCase capturePageUseCase,
+    ProjectRepository? projectRepository,
   }) : _pageRepository = pageRepository,
        _detectAnomaliesUseCase = detectAnomaliesUseCase,
        _capturePageUseCase = capturePageUseCase {
     _subscribe();
+    if (projectRepository != null) unawaited(_loadProject(projectRepository));
+  }
+
+  Project? _project;
+
+  /// The project, once loaded; null when no [ProjectRepository] was given.
+  /// Book projects offer "Split into two pages" on unsplit pages.
+  Project? get project => _project;
+
+  bool _disposed = false;
+
+  Future<void> _loadProject(ProjectRepository repository) async {
+    final project = await repository.getProject(projectId);
+    if (_disposed) return;
+    _project = project;
+    notifyListeners();
   }
 
   final String projectId;
@@ -116,15 +135,13 @@ class PageReviewViewModel extends ChangeNotifier {
         page.copyWith(clearLogicalPageLabel: true),
       );
     }
-    return _pageRepository.updatePage(
-      page.copyWith(logicalPageLabel: trimmed),
-    );
+    return _pageRepository.updatePage(page.copyWith(logicalPageLabel: trimmed));
   }
 
   /// Resets filter/adjustments/crop/rotation and re-derives the processed
   /// image from the retained [ScanPage.originalImagePath] (SPEC 6.2).
-  Future<void> revertToOriginal(ScanPage page) => _capturePageUseCase
-      .reprocessPage(
+  Future<void> revertToOriginal(ScanPage page) =>
+      _capturePageUseCase.reprocessPage(
         page,
         cropPoints: Quad.fullFrame,
         rotationDegrees: 0,
@@ -166,6 +183,7 @@ class PageReviewViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _subscription?.cancel();
     super.dispose();
   }

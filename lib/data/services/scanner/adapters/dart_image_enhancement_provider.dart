@@ -352,7 +352,15 @@ img.Image _flattenIllumination(img.Image src) {
     width: downscaleWidth,
     height: (src.height * scale).round().clamp(1, src.height),
   );
-  final blurredSmall = img.gaussianBlur(small, radius: 24);
+  // Erase handwriting/print before estimating the paper's lighting: a blur
+  // that includes the ink darkens the estimate under dense text, which
+  // then fades that text. A wide blur also smeared hard-edged shadows
+  // (a book page's edge/gutter shadow) so their outline stayed visible.
+  // Tuned on a real shadowed notebook page from the S200.
+  final blurredSmall = img.gaussianBlur(
+    _maxFilter(small, _inkEraseRadius),
+    radius: 8,
+  );
   final background = img.copyResize(
     blurredSmall,
     width: src.width,
@@ -368,6 +376,32 @@ img.Image _flattenIllumination(img.Image src) {
       final ng = _normalizeChannel(p.g.toDouble(), bg.g.toDouble());
       final nb = _normalizeChannel(p.b.toDouble(), bg.b.toDouble());
       out.setPixelRgb(x, y, nr, ng, nb);
+    }
+  }
+  return out;
+}
+
+/// Half-width of the max filter that removes ink strokes at the 300 px
+/// working size (a 7 x 7 window).
+const _inkEraseRadius = 3;
+
+/// Per-channel maximum over a (2r+1)^2 window: thin dark strokes vanish and
+/// only paper and shadow remain.
+img.Image _maxFilter(img.Image src, int r) {
+  final out = img.Image(width: src.width, height: src.height);
+  for (var y = 0; y < src.height; y++) {
+    for (var x = 0; x < src.width; x++) {
+      num mr = 0, mg = 0, mb = 0;
+      for (var dy = -r; dy <= r; dy++) {
+        final yy = (y + dy).clamp(0, src.height - 1);
+        for (var dx = -r; dx <= r; dx++) {
+          final p = src.getPixel((x + dx).clamp(0, src.width - 1), yy);
+          if (p.r > mr) mr = p.r;
+          if (p.g > mg) mg = p.g;
+          if (p.b > mb) mb = p.b;
+        }
+      }
+      out.setPixelRgb(x, y, mr, mg, mb);
     }
   }
   return out;
@@ -405,11 +439,7 @@ img.Image _applyFilter(img.Image src, PageFilter filter, double threshold) =>
 img.Image _adaptiveThreshold(img.Image src, double threshold) {
   final gray = img.grayscale(src);
   // Mild contrast stretch toward a white page before binarizing.
-  final lifted = img.adjustColor(
-    gray,
-    contrast: 1.35,
-    brightness: 1.08,
-  );
+  final lifted = img.adjustColor(gray, contrast: 1.35, brightness: 1.08);
   const block = 25;
   final c = 10 + (0.5 - threshold.clamp(0.0, 1.0)) * 40;
   final w = lifted.width;

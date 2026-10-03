@@ -88,7 +88,8 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
   /// True when a real crop+filter preview JPEG is ready (not a ColorFilter
   /// approximation on the full original).
   bool get showingRenderedPreview =>
-      showingSavedProcessed || (_livePreviewPath != null && !showingSavedProcessed);
+      showingSavedProcessed ||
+      (_livePreviewPath != null && !showingSavedProcessed);
 
   /// Prefer: saved processed → live rendered preview (cropped+filtered) →
   /// last processed (keeps crop framing) → original as last resort.
@@ -111,7 +112,7 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
       }
       if (_disposed) return;
       _adoptPage(page);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _error = e;
     } finally {
       _loading = false;
@@ -198,14 +199,37 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
       _previewRendering = false;
       return;
     }
+    // Show progress from the tap itself, not only once the debounced
+    // render starts, so the user sees the change is being applied.
+    _previewRendering = true;
     _previewDebounce = Timer(const Duration(milliseconds: 180), () {
       unawaited(_renderLivePreview());
     });
   }
 
+  /// A full-resolution preview render is in progress. At most one runs at
+  /// a time: dragging a slider used to start a new render on every pause
+  /// without stopping older ones, and several concurrent renders of one
+  /// page exhausted memory and froze the app (ANR, then killed).
+  bool _renderInFlight = false;
+
+  /// Controls changed while a render was in flight; render once more with
+  /// the latest values when it finishes.
+  bool _renderAgain = false;
+
   Future<void> _renderLivePreview() async {
+    if (_renderInFlight) {
+      _renderAgain = true;
+      return;
+    }
     final page = _page;
-    if (page == null || showingSavedProcessed) return;
+    if (page == null || showingSavedProcessed) {
+      _previewRendering = false;
+      _notify();
+      return;
+    }
+    _renderInFlight = true;
+    _renderAgain = false;
     final token = ++_previewToken;
     _previewRendering = true;
     _notify();
@@ -228,9 +252,14 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
       if (_disposed || token != _previewToken) return;
       _error = e;
     } finally {
+      _renderInFlight = false;
       if (!_disposed && token == _previewToken) {
         _previewRendering = false;
         _notify();
+      }
+      if (_renderAgain && !_disposed) {
+        _renderAgain = false;
+        if (!showingSavedProcessed) unawaited(_renderLivePreview());
       }
     }
   }
@@ -262,11 +291,13 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
       _page = updated;
       _previewEpoch++;
       return true;
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _error = e;
       return false;
     } finally {
       _saving = false;
+      // Save cancels the live preview; never leave the controls locked.
+      _previewRendering = false;
       _notify();
     }
   }
@@ -278,6 +309,7 @@ class FilterAdjustmentViewModel extends ChangeNotifier {
     _previewDebounce = null;
     _previewToken++;
     _previewRendering = false;
+    _renderAgain = false;
   }
 
   @override

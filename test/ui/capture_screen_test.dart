@@ -8,7 +8,6 @@ import 'package:bookscanner/domain/models/geometry.dart';
 import 'package:bookscanner/domain/models/project.dart';
 import 'package:bookscanner/domain/models/provider_info.dart';
 import 'package:bookscanner/domain/models/scan_page.dart';
-import 'package:bookscanner/domain/providers/book_dewarp_provider.dart';
 import 'package:bookscanner/domain/providers/capture_provider.dart';
 import 'package:bookscanner/domain/providers/image_enhancement_provider.dart';
 import 'package:bookscanner/domain/providers/page_detection_provider.dart';
@@ -16,7 +15,6 @@ import 'package:bookscanner/domain/repositories/page_repository.dart';
 import 'package:bookscanner/domain/repositories/project_repository.dart';
 import 'package:bookscanner/domain/repositories/settings_repository.dart';
 import 'package:bookscanner/domain/use_cases/capture_page_use_case.dart';
-import 'package:bookscanner/domain/use_cases/process_book_spread_use_case.dart';
 import 'package:bookscanner/l10n/gen/app_localizations.dart';
 import 'package:bookscanner/routing/app_router.dart';
 import 'package:bookscanner/ui/features/capture/view_models/capture_view_model.dart';
@@ -272,6 +270,9 @@ class _FakeEnhancementProvider implements ImageEnhancementProvider {
   /// yet fully processed/added.
   Completer<void>? enhanceGate;
 
+  /// Every request, so tests can check system-scanner pages pass through.
+  final requests = <EnhancementRequest>[];
+
   @override
   ProviderInfo get info =>
       const ProviderInfo(providerName: 'fake', adapterVersion: '1');
@@ -281,68 +282,17 @@ class _FakeEnhancementProvider implements ImageEnhancementProvider {
 
   @override
   Future<EnhancementResult> enhance(EnhancementRequest request) async {
+    requests.add(request);
     if (enhanceGate != null) await enhanceGate!.future;
-    await File(request.sourceImagePath).copy(request.outputImagePath);
+    // Sync copy: real async file I/O never completes inside a testWidgets
+    // fake-async zone, and book capture runs from a post-frame callback.
+    File(request.sourceImagePath).copySync(request.outputImagePath);
     return EnhancementResult(
       processedImagePath: request.outputImagePath,
       thumbnailPath: request.outputImagePath,
       qualityScore: 0.9,
       providerInfo: info,
       cropPoints: request.cropPoints,
-    );
-  }
-}
-
-class _FakeBookDewarpProvider implements BookDewarpProvider {
-  _FakeBookDewarpProvider(this._tmpDir);
-
-  final Directory _tmpDir;
-  int splitCalls = 0;
-  int dewarpCalls = 0;
-
-  @override
-  ProviderInfo get info =>
-      const ProviderInfo(providerName: 'fake-book-dewarp', adapterVersion: '1');
-
-  @override
-  Future<bool> isSupported() async => true;
-
-  @override
-  Future<SpreadSplitResult> splitSpread(
-    String spreadImagePath, {
-    double? gutterXOverride,
-  }) async {
-    splitCalls++;
-    final image = img.Image(width: 40, height: 60);
-    img.fill(image, color: img.ColorRgb8(255, 255, 255));
-    final leftPath = p.join(_tmpDir.path, 'split_left_$splitCalls.jpg');
-    final rightPath = p.join(_tmpDir.path, 'split_right_$splitCalls.jpg');
-    File(leftPath).writeAsBytesSync(img.encodeJpg(image));
-    File(rightPath).writeAsBytesSync(img.encodeJpg(image));
-    return SpreadSplitResult(
-      leftPageImagePath: leftPath,
-      rightPageImagePath: rightPath,
-      confidence: 0.9,
-      providerInfo: info,
-    );
-  }
-
-  @override
-  Future<DewarpResult> dewarp(
-    String pageImagePath,
-    Quad pageBounds, {
-    String? outputPath,
-  }) async {
-    dewarpCalls++;
-    final path = outputPath ?? pageImagePath;
-    if (outputPath != null && outputPath != pageImagePath) {
-      File(pageImagePath).copySync(outputPath);
-    }
-    return DewarpResult(
-      flattenedImagePath: path,
-      providerInfo: info,
-      occlusionDetected: false,
-      occlusionHighConfidenceTextLoss: false,
     );
   }
 }
@@ -423,6 +373,110 @@ class _IdBatchCaptureProvider extends _TestCaptureProvider
   }
 }
 
+/// Stands in for ML Kit / VisionKit: one call returns [pagesPerScan]
+/// already-flattened pages (`nativeReady`); zero means the user cancelled.
+class _BookBatchCaptureProvider extends _TestCaptureProvider
+    implements BatchDocumentCapture {
+  _BookBatchCaptureProvider(super._tmpDir, {this.pagesPerScan = 1});
+
+  final int pagesPerScan;
+  final maxPagesSeen = <int>[];
+  int singleCaptures = 0;
+
+  /// Throws a provider error on the next scan, as a failed module load would.
+  bool failNext = false;
+
+  int _stills = 0;
+
+  /// Written synchronously so the scan also completes when CaptureScreen
+  /// auto-launches it inside a testWidgets fake-async zone.
+  Future<StillCapture> _nativeStill() async {
+    _stills++;
+    final path = p.join(
+      _tmpDir.path,
+      'book_scan_${identityHashCode(this)}_$_stills.jpg',
+    );
+    File(path).writeAsBytesSync([0xFF, 0xD8, 0xFF, 0xD9]);
+    return StillCapture(
+      originalImagePath: path,
+      detectedQuad: Quad.fullFrame,
+      qualityScore: 0.9,
+      warnings: const {},
+      capturedAtMs: DateTime.now().millisecondsSinceEpoch,
+      providerInfo: info,
+      analyzedFromStill: true,
+      detectionConfidence: 1,
+      nativeReady: true,
+    );
+  }
+
+  @override
+  Future<List<StillCapture>> scanDocuments({int maxPages = 50}) async {
+    maxPagesSeen.add(maxPages);
+    if (failNext) {
+      failNext = false;
+      throw const ProviderException(
+        ProviderErrorCategory.processingFailed,
+        'Scanner unavailable',
+      );
+    }
+    return [for (var i = 0; i < pagesPerScan; i++) await _nativeStill()];
+  }
+
+  @override
+  Future<StillCapture> captureStill({bool bypassQualityGate = false}) {
+    singleCaptures++;
+    return _nativeStill();
+  }
+}
+
+/// Review with Capture pushed on top, as "Add pages" opens it.
+GoRouter _reviewThenCaptureRouter(CaptureViewModel viewModel, String id) =>
+    GoRouter(
+      initialLocation: AppRoutes.pageReviewFor(id),
+      routes: [
+        GoRoute(
+          path: AppRoutes.capture,
+          builder: (context, state) =>
+              CaptureScreen(projectId: id, viewModel: viewModel),
+        ),
+        GoRoute(
+          path: AppRoutes.pageReview,
+          builder: (context, state) => const Scaffold(
+            body: Text('Review', key: ValueKey('pageReviewMarker')),
+          ),
+        ),
+      ],
+    );
+
+Widget _routerApp(GoRouter router) => MaterialApp.router(
+  routerConfig: router,
+  localizationsDelegates: const [
+    AppLocalizations.delegate,
+    GlobalMaterialLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+  ],
+  supportedLocales: AppLocalizations.supportedLocales,
+);
+
+/// The book screen launches the scanner from a post-frame callback; part of
+/// that chain completes on the real event loop, so yield to it until the
+/// screen has closed the session, then let the navigation render.
+Future<void> _settleBookScan(
+  WidgetTester tester,
+  CaptureViewModel viewModel,
+) async {
+  bool done() =>
+      (viewModel.bookScanFinished || viewModel.bookScanCancelled) &&
+      !viewModel.sessionOpen;
+  for (var i = 0; i < 200 && !done(); i++) {
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+  }
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory tmpDir;
@@ -431,7 +485,6 @@ void main() {
   late _FakeProjectRepository projectRepository;
   late _TestCaptureProvider captureProvider;
   late CapturePageUseCase capturePageUseCase;
-  late ProcessBookSpreadUseCase processBookSpreadUseCase;
   late FakePermissionHandlerPlatform permissionPlatform;
   late _FakeEnhancementProvider enhancementProvider;
 
@@ -466,13 +519,6 @@ void main() {
       detectionProvider: _FakeDetectionProvider(),
       fileStorage: paths,
     );
-    processBookSpreadUseCase = ProcessBookSpreadUseCase(
-      pageRepository: pageRepository,
-      dewarpProvider: _FakeBookDewarpProvider(tmpDir),
-      detectionProvider: _FakeDetectionProvider(),
-      enhancementProvider: enhancementProvider,
-      fileStorage: paths,
-    );
     permissionPlatform = FakePermissionHandlerPlatform();
     PermissionHandlerPlatform.instance = permissionPlatform;
   });
@@ -483,11 +529,11 @@ void main() {
     CaptureSettings captureSettings = const CaptureSettings(),
     CaptureProvider? captureProviderOverride,
     CaptureMode? preferredCaptureMode,
+    void Function(List<String> pageIds)? onBookPagesSaved,
   }) => CaptureViewModel(
     projectId: 'proj1',
     captureProvider: captureProviderOverride ?? captureProvider,
     capturePageUseCase: capturePageUseCase,
-    processBookSpreadUseCase: processBookSpreadUseCase,
     projectRepository: projectRepository,
     pageRepository: pageRepository,
     settingsRepository: _FakeSettingsRepository(
@@ -496,6 +542,7 @@ void main() {
     replacePageId: replacePageId,
     preferredCaptureMode: preferredCaptureMode,
     resultPreviewHold: resultPreviewHold,
+    onBookPagesSaved: onBookPagesSaved,
   );
 
   testWidgets(
@@ -1024,7 +1071,6 @@ void main() {
         projectId: 'proj1',
         captureProvider: captureProvider,
         capturePageUseCase: capturePageUseCase,
-        processBookSpreadUseCase: processBookSpreadUseCase,
         projectRepository: projectRepository,
         pageRepository: pageRepository,
         settingsRepository: _FakeSettingsRepository(),
@@ -1076,202 +1122,202 @@ void main() {
     expect(viewModel.pageCount, 1);
   });
 
-  test(
-    'a book capture stores one full page even if the project was a spread',
-    () async {
-      projectRepository.nextProject = Project(
-        id: 'proj1',
-        type: ProjectType.book,
-        title: 'Book',
-        metadata: const ProjectMetadata(
-          bookScanMode: BookScanMode.twoPageSpread,
-        ),
-        pageOrder: const [],
-        createdAt: DateTime(2026),
-        updatedAt: DateTime(2026),
-        processingState: ProcessingState.idle,
-      );
-      final viewModel = buildViewModel();
-      await viewModel.initialize();
-      final pages = await viewModel.captureManually();
-      expect(pages, hasLength(1));
-      expect(viewModel.pageCount, 1);
-      expect(pages.single.spreadSiblingPageId, isNull);
-      expect(pages.single.cropPoints, Quad.fullFrame);
-      expect(pages.single.status, PageStatus.processing);
-      await _waitUntil(() async {
-        final saved = await pageRepository.getPage(pages.single.id);
-        return saved?.status == PageStatus.ready;
-      });
-    },
+  Project bookProject() => Project(
+    id: 'proj1',
+    type: ProjectType.book,
+    title: 'Book',
+    metadata: const ProjectMetadata(),
+    pageOrder: const [],
+    createdAt: DateTime(2026),
+    updatedAt: DateTime(2026),
+    processingState: ProcessingState.idle,
   );
 
-  test('a book single-page capture persists the full photo', () async {
-    projectRepository.nextProject = Project(
-      id: 'proj1',
-      type: ProjectType.book,
-      title: 'Book',
-      metadata: const ProjectMetadata(bookScanMode: BookScanMode.singlePage),
-      pageOrder: const [],
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      processingState: ProcessingState.idle,
+  Future<void> addExistingPage(String id, int sequence) async {
+    final path = p.join(tmpDir.path, 'existing_$id.jpg');
+    // Sync: async file I/O never completes inside a testWidgets body.
+    File(path).writeAsBytesSync([1, 2, 3]);
+    await pageRepository.addPage(
+      ScanPage(
+        id: id,
+        projectId: 'proj1',
+        sequence: sequence,
+        originalImagePath: path,
+        status: PageStatus.ready,
+      ),
     );
-    final viewModel = buildViewModel();
+  }
+
+  test('a book opens the multi-page system scanner and stores its pages '
+      'in order, as returned', () async {
+    projectRepository.nextProject = bookProject();
+    final batch = _BookBatchCaptureProvider(tmpDir, pagesPerScan: 3);
+    final cleaned = <String>[];
+    final viewModel = buildViewModel(
+      captureProviderOverride: batch,
+      onBookPagesSaved: cleaned.addAll,
+    );
     await viewModel.initialize();
+
     final pages = await viewModel.captureManually();
-    expect(pages, hasLength(1));
-    expect(viewModel.pageCount, 1);
-    expect(pages.single.spreadSiblingPageId, isNull);
-    expect(pages.single.cropPoints, Quad.fullFrame);
-    expect(pages.single.status, PageStatus.processing);
-    expect(pages.single.stages[PipelineStage.dewarp], isNull);
-    expect(pages.single.stages[PipelineStage.split], isNull);
-    await _waitUntil(() async {
-      final saved = await pageRepository.getPage(pages.single.id);
-      return saved?.status == PageStatus.ready &&
-          saved?.filter == PageFilter.enhancedColor;
-    });
+
+    expect(batch.maxPagesSeen, [100]);
+    expect(pages.map((p) => p.sequence), [0, 1, 2]);
+    expect(cleaned, [for (final p in pages) p.id]);
+    expect(viewModel.pageCount, 3);
+    expect(viewModel.sessionAddedPages, 3);
+    expect(viewModel.bookScanFinished, isTrue);
+    expect(viewModel.capturing, isFalse);
+    // Google's output is already cropped and flattened: stored as returned,
+    // with no second crop, filter, or shadow pass on top of it.
+    expect(enhancementProvider.requests, isEmpty);
+    for (final page in pages) {
+      expect(page.cropPoints, Quad.fullFrame);
+      expect(page.filter, PageFilter.original);
+      expect(page.processedImagePath, page.originalImagePath);
+      expect(page.status, PageStatus.ready);
+    }
   });
 
-  test('book shutter does not open the multi-page document scanner', () async {
-    final batch = _IdBatchCaptureProvider(tmpDir);
-    projectRepository.nextProject = Project(
-      id: 'proj1',
-      type: ProjectType.book,
-      title: 'Book',
-      metadata: const ProjectMetadata(),
-      pageOrder: const [],
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      processingState: ProcessingState.idle,
+  test('a book skips the in-app camera permission rationale', () async {
+    projectRepository.nextProject = bookProject();
+    permissionPlatform.statusToReturn = PermissionStatus.denied;
+    final viewModel = buildViewModel(
+      captureProviderOverride: _BookBatchCaptureProvider(tmpDir),
     );
-    final gate = Completer<void>();
-    enhancementProvider.enhanceGate = gate;
+    await viewModel.initialize();
+
+    expect(viewModel.permissionState, CapturePermissionState.granted);
+    expect(viewModel.sessionOpen, isTrue);
+  });
+
+  test('cancelling the scanner on an existing book keeps its pages and '
+      'marks the session cancelled', () async {
+    projectRepository.nextProject = bookProject();
+    await addExistingPage('a', 0);
+    await addExistingPage('b', 1);
+    final batch = _BookBatchCaptureProvider(tmpDir, pagesPerScan: 0);
     final viewModel = buildViewModel(captureProviderOverride: batch);
     await viewModel.initialize();
 
     final pages = await viewModel.captureManually();
-    expect(batch.maxPagesSeen, isEmpty);
-    expect(viewModel.capturing, isFalse);
-    expect(pages.single.status, PageStatus.processing);
 
-    gate.complete();
-    await _waitUntil(() async {
-      final saved = await pageRepository.getPage(pages.single.id);
-      return saved?.status == PageStatus.ready;
-    });
+    expect(pages, isEmpty);
+    expect(viewModel.bookScanCancelled, isTrue);
+    expect(viewModel.bookScanFinished, isFalse);
+    expect(viewModel.initialPageCount, 2);
+    expect(viewModel.sessionAddedPages, 0);
+    expect(await pageRepository.getPages('proj1'), hasLength(2));
   });
 
-  test(
-    'book shutter clears while enhancement is still running',
-    () async {
-      projectRepository.nextProject = Project(
-        id: 'proj1',
-        type: ProjectType.book,
-        title: 'Book',
-        metadata: const ProjectMetadata(),
-        pageOrder: const [],
-        createdAt: DateTime(2026),
-        updatedAt: DateTime(2026),
-        processingState: ProcessingState.idle,
+  test('"Add pages" on an existing book appends after its pages', () async {
+    projectRepository.nextProject = bookProject();
+    await addExistingPage('a', 0);
+    await addExistingPage('b', 1);
+    final batch = _BookBatchCaptureProvider(tmpDir, pagesPerScan: 2);
+    final viewModel = buildViewModel(captureProviderOverride: batch);
+    await viewModel.initialize();
+
+    final pages = await viewModel.captureManually();
+
+    expect(pages.map((p) => p.sequence), [2, 3]);
+    expect(viewModel.initialPageCount, 2);
+    expect(viewModel.sessionAddedPages, 2);
+  });
+
+  test('book Rescan replaces just that page from a one-page scan', () async {
+    projectRepository.nextProject = bookProject();
+    await addExistingPage('a', 0);
+    await addExistingPage('b', 1);
+    final batch = _BookBatchCaptureProvider(tmpDir);
+    final viewModel = buildViewModel(
+      captureProviderOverride: batch,
+      replacePageId: 'b',
+    );
+    await viewModel.initialize();
+
+    await viewModel.captureManually();
+
+    expect(viewModel.replacementComplete, isTrue);
+    expect(batch.maxPagesSeen, isEmpty);
+    expect(batch.singleCaptures, 1);
+    final pages = await pageRepository.getPages('proj1');
+    expect(pages.map((p) => p.id).toSet(), {'a', 'b'});
+  });
+
+  test('a scanner error can be retried', () async {
+    projectRepository.nextProject = bookProject();
+    final batch = _BookBatchCaptureProvider(tmpDir, pagesPerScan: 1)
+      ..failNext = true;
+    final viewModel = buildViewModel(captureProviderOverride: batch);
+    await viewModel.initialize();
+
+    await viewModel.captureManually();
+    expect(viewModel.error, isNotNull);
+    expect(viewModel.bookScanFinished, isFalse);
+
+    await viewModel.retryScan();
+    expect(viewModel.error, isNull);
+    expect(viewModel.bookScanFinished, isTrue);
+    expect(viewModel.pageCount, 1);
+  });
+
+  testWidgets(
+    'a new book opens the scanner straight away, then goes to Review',
+    (tester) async {
+      projectRepository.nextProject = bookProject();
+      final batch = _BookBatchCaptureProvider(tmpDir, pagesPerScan: 2);
+      final viewModel = buildViewModel(captureProviderOverride: batch);
+      await tester.pumpWidget(
+        _wrapCaptureWithRouter(viewModel: viewModel, projectId: 'proj1'),
       );
-      final gate = Completer<void>();
-      enhancementProvider.enhanceGate = gate;
-      final viewModel = buildViewModel();
-      await viewModel.initialize();
 
-      final pages = await viewModel.captureManually();
-      expect(viewModel.capturing, isFalse);
-      expect(pages.single.status, PageStatus.processing);
-      expect(gate.isCompleted, isFalse);
+      // No camera chrome of our own: Google's scanner is the camera.
+      expect(find.byKey(const ValueKey('shutterButton')), findsNothing);
+      expect(find.text('Ready to scan your book'), findsNothing);
 
-      final mid = await pageRepository.getPage(pages.single.id);
-      expect(mid?.status, PageStatus.processing);
+      await tester.pump();
+      await _settleBookScan(tester, viewModel);
 
-      gate.complete();
-      await _waitUntil(() async {
-        final saved = await pageRepository.getPage(pages.single.id);
-        return saved?.status == PageStatus.ready;
-      });
-      final done = await pageRepository.getPage(pages.single.id);
-      expect(done?.filter, PageFilter.enhancedColor);
-      expect(done?.stages[PipelineStage.enhancement], isNotNull);
+      expect(batch.maxPagesSeen, [100]);
+      expect(find.byKey(const ValueKey('pageReviewMarker')), findsOneWidget);
     },
   );
 
-  testWidgets('book Done opens Review instead of post-capture crop', (
+  testWidgets('"Add pages" from Review returns to that Review after scanning', (
     tester,
   ) async {
-    projectRepository.nextProject = Project(
-      id: 'proj1',
-      type: ProjectType.book,
-      title: 'Book',
-      metadata: const ProjectMetadata(),
-      pageOrder: const [],
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-      processingState: ProcessingState.idle,
-    );
-    final viewModel = buildViewModel();
-    await tester.pumpWidget(
-      _wrapCaptureWithRouter(viewModel: viewModel, projectId: 'proj1'),
-    );
+    projectRepository.nextProject = bookProject();
+    await addExistingPage('a', 0);
+    final batch = _BookBatchCaptureProvider(tmpDir, pagesPerScan: 1);
+    final viewModel = buildViewModel(captureProviderOverride: batch);
+    final router = _reviewThenCaptureRouter(viewModel, 'proj1');
+    await tester.pumpWidget(_routerApp(router));
+    router.push(AppRoutes.captureFor('proj1'));
     await tester.pump();
-    await tester.pump();
-
-    expect(find.text('Book Scan'), findsOneWidget);
-    expect(find.text('Ready to scan your book'), findsNothing);
-    expect(find.text('Start scanning'), findsNothing);
-
-    await tester.runAsync(() async {
-      await viewModel.captureManually();
-      await viewModel.waitForBookEnhancement();
-    });
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 1700));
-
-    expect(find.byKey(const ValueKey('captureDoneButton')), findsOneWidget);
-    expect(find.byKey(const ValueKey('bookCaptureToast')), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
-    await tester.pump();
-    await tester.pumpAndSettle();
+    await _settleBookScan(tester, viewModel);
 
     expect(find.byKey(const ValueKey('pageReviewMarker')), findsOneWidget);
-    expect(find.byKey(const ValueKey('cropCorrectionMarker')), findsNothing);
+    expect(router.canPop(), isFalse, reason: 'Review must not be stacked');
+    expect(await pageRepository.getPages('proj1'), hasLength(2));
   });
 
-  test(
-    'book capture toast clears while the shutter stays free',
-    () async {
-      projectRepository.nextProject = Project(
-        id: 'proj1',
-        type: ProjectType.book,
-        title: 'Book',
-        metadata: const ProjectMetadata(),
-        pageOrder: const [],
-        createdAt: DateTime(2026),
-        updatedAt: DateTime(2026),
-        processingState: ProcessingState.idle,
-      );
-      final gate = Completer<void>();
-      enhancementProvider.enhanceGate = gate;
-      final viewModel = buildViewModel();
-      await viewModel.initialize();
+  testWidgets(
+    'cancelling "Add pages" pops back and keeps every existing page',
+    (tester) async {
+      projectRepository.nextProject = bookProject();
+      await addExistingPage('a', 0);
+      await addExistingPage('b', 1);
+      final batch = _BookBatchCaptureProvider(tmpDir, pagesPerScan: 0);
+      final viewModel = buildViewModel(captureProviderOverride: batch);
+      final router = _reviewThenCaptureRouter(viewModel, 'proj1');
+      await tester.pumpWidget(_routerApp(router));
+      router.push(AppRoutes.captureFor('proj1'));
+      await tester.pump();
+      await _settleBookScan(tester, viewModel);
 
-      final pages = await viewModel.captureManually();
-      expect(viewModel.capturing, isFalse);
-      expect(viewModel.captureToastPageNumber, 1);
-      expect(viewModel.frozenPreviewPath, isNull);
-      expect(pages.single.status, PageStatus.processing);
-
-      gate.complete();
-      await viewModel.waitForBookEnhancement();
-      expect(
-        (await pageRepository.getPage(pages.single.id))?.status,
-        PageStatus.ready,
-      );
+      expect(find.byKey(const ValueKey('pageReviewMarker')), findsOneWidget);
+      expect(await pageRepository.getPages('proj1'), hasLength(2));
     },
   );
 

@@ -51,7 +51,9 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
   void _confirm() {
     final launch = switch (_format) {
       _SheetFormat.pdf => ExportLaunch(
-        format: _searchable ? ExportFormat.searchablePdf : ExportFormat.imagePdf,
+        format: _searchable
+            ? ExportFormat.searchablePdf
+            : ExportFormat.imagePdf,
         pdfOptions: PdfExportOptions(
           pageSize: _pageSize,
           imageQuality: _quality.quality,
@@ -211,7 +213,8 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
                     icon: Icons.image_outlined,
                     label: l10n.reviewIncludePageImages,
                     value: _includeImages,
-                    onChanged: (value) => setState(() => _includeImages = value),
+                    onChanged: (value) =>
+                        setState(() => _includeImages = value),
                   ),
                 ],
               ),
@@ -339,11 +342,7 @@ class _FormatCard extends StatelessWidget {
 }
 
 class _OptionsPanel extends StatelessWidget {
-  const _OptionsPanel({
-    super.key,
-    required this.title,
-    required this.children,
-  });
+  const _OptionsPanel({super.key, required this.title, required this.children});
 
   final String title;
   final List<Widget> children;

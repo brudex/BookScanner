@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 
+import '../../../../domain/models/capture_models.dart';
 import '../../../../domain/models/geometry.dart';
 import '../../../../domain/models/provider_info.dart';
 import '../../../../domain/models/scan_page.dart';
@@ -20,6 +23,9 @@ class NativeOpenCvImageEnhancementProvider implements ImageEnhancementProvider {
   final FileStorageService _fileStorage;
   final ImageEnhancementProvider _fallback;
 
+  /// [EnhancementRequest.threshold] value meaning "use the filter's own".
+  static const double _defaultThreshold = 0.5;
+
   @override
   ProviderInfo get info => const ProviderInfo(
     providerName: 'native-opencv-enhance',
@@ -30,8 +36,10 @@ class NativeOpenCvImageEnhancementProvider implements ImageEnhancementProvider {
   Future<double> scoreQuality(String imagePath) async {
     try {
       final availability = await _channel.isAvailable();
-      if (!availability.available) return _fallback.scoreQuality(imagePath);
-      return _channel.scoreStill(imagePath);
+      if (!availability.available) {
+        return await _fallback.scoreQuality(imagePath);
+      }
+      return await _channel.scoreStill(imagePath);
     } on Object {
       return _fallback.scoreQuality(imagePath);
     }
@@ -39,10 +47,49 @@ class NativeOpenCvImageEnhancementProvider implements ImageEnhancementProvider {
 
   @override
   Future<EnhancementResult> enhance(EnhancementRequest request) async {
+    // Pages scanned before stored images were capped can be 30-65 MP;
+    // processing one at full size ran the Dart pipeline out of memory
+    // (114 MB for a single pixel buffer) and Save silently did nothing.
+    // Work from a copy capped like new pages; crop quads are normalized,
+    // so they apply unchanged. The copy is native and low-memory.
+    final workPath = '${request.outputImagePath}.work.jpg';
+    var bounded = request;
+    try {
+      if (await _channel.downscaleStill(
+        sourcePath: request.sourceImagePath,
+        outputPath: workPath,
+        maxLongSide: StoredPageLimits.maxLongSidePx,
+      )) {
+        bounded = request.withSource(workPath);
+      }
+    } on Object {
+      // Fall back to the original; small pages never needed bounding.
+    }
+    try {
+      return await _enhanceBounded(bounded);
+    } finally {
+      try {
+        final work = File(workPath);
+        if (await work.exists()) await work.delete();
+      } on Object {
+        // Best effort.
+      }
+    }
+  }
+
+  Future<EnhancementResult> _enhanceBounded(EnhancementRequest request) async {
     if (request.passthrough) return _fallback.enhance(request);
+    // The native warp/filter has no fine rotation or B&W threshold input,
+    // and its follow-up Dart pass only covers brightness/contrast/sharpness,
+    // so those sliders silently did nothing. The Dart pipeline does both.
+    if (request.fineRotationDegrees != 0 ||
+        (request.filter == PageFilter.blackAndWhite &&
+            request.threshold != _defaultThreshold)) {
+      return _fallback.enhance(request);
+    }
     try {
       final availability = await _channel.isAvailable();
-      if (!availability.available) return _fallback.enhance(request);
+      if (!availability.available) return await _fallback.enhance(request);
       final crop = request.cropPoints == Quad.captureGuide
           ? Quad.fullFrame
           : request.cropPoints;
