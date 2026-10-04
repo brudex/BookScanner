@@ -71,10 +71,7 @@ Future<ui.Image> _imageFor(_Key key) {
     _cache.remove(_cache.keys.first);
   }
   // A failed render is not cached; the gradient fallback stays visible.
-  future.catchError((Object _) {
-    _cache.remove(key);
-    return future;
-  });
+  future.then<void>((_) {}, onError: (Object _) => _cache.remove(key));
   return future;
 }
 
@@ -156,7 +153,10 @@ void _paintBackdrop(Canvas canvas, Size size, AppBackdropStyle style) {
   final full = Offset.zero & size;
 
   // Base: the existing deep black -> emerald wash.
-  canvas.drawRect(full, Paint()..shader = AppTheme.homeGradient.createShader(full));
+  canvas.drawRect(
+    full,
+    Paint()..shader = AppTheme.homeGradient.createShader(full),
+  );
 
   void glow(Offset center, double radius, Color color) {
     canvas.drawRect(
@@ -174,7 +174,7 @@ void _paintBackdrop(Canvas canvas, Size size, AppBackdropStyle style) {
       glow(
         Offset(w * 0.78, -h * 0.02),
         w * 0.95,
-        AppTheme.accentDeep.withValues(alpha: 0.38),
+        AppTheme.accentDeep.withValues(alpha: 0.50),
       );
       glow(
         Offset(w * 0.05, h * 0.55),
@@ -185,12 +185,12 @@ void _paintBackdrop(Canvas canvas, Size size, AppBackdropStyle style) {
       // The swoosh: the region above a sweeping curve, brighter towards
       // the top right, with a soft edge.
       final edge = Path()
-        ..moveTo(w * 0.18, -h * 0.02)
-        ..cubicTo(w * 0.42, h * 0.10, w * 0.70, h * 0.04, w * 1.04, h * 0.16);
+        ..moveTo(w * 0.10, -h * 0.02)
+        ..cubicTo(w * 0.38, h * 0.13, w * 0.70, h * 0.02, w * 1.04, h * 0.11);
       final band = Path.from(edge)
         ..lineTo(w * 1.04, -h * 0.02)
         ..close();
-      final bandRect = Rect.fromLTWH(0, 0, w, h * 0.18);
+      final bandRect = Rect.fromLTWH(0, 0, w, h * 0.14);
       canvas.drawPath(
         band,
         Paint()
@@ -198,8 +198,8 @@ void _paintBackdrop(Canvas canvas, Size size, AppBackdropStyle style) {
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
             colors: [
-              AppTheme.accent.withValues(alpha: 0.30),
-              AppTheme.accentDeep.withValues(alpha: 0.10),
+              AppTheme.accent.withValues(alpha: 0.42),
+              AppTheme.accentDeep.withValues(alpha: 0.16),
             ],
           ).createShader(bandRect)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
@@ -209,16 +209,16 @@ void _paintBackdrop(Canvas canvas, Size size, AppBackdropStyle style) {
         edge,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 18
-          ..color = AppTheme.accent.withValues(alpha: 0.12)
+          ..strokeWidth = 22
+          ..color = AppTheme.accent.withValues(alpha: 0.22)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
       );
       canvas.drawPath(
         edge,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.6
-          ..color = AppTheme.accent.withValues(alpha: 0.55)
+          ..strokeWidth = 2.2
+          ..color = AppTheme.accent.withValues(alpha: 0.85)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5),
       );
       // A fainter second wave below for depth.
@@ -229,8 +229,8 @@ void _paintBackdrop(Canvas canvas, Size size, AppBackdropStyle style) {
         wave,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 26
-          ..color = AppTheme.accent.withValues(alpha: 0.06)
+          ..strokeWidth = 30
+          ..color = AppTheme.accent.withValues(alpha: 0.10)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
       );
 
@@ -258,7 +258,10 @@ void _paintBackdrop(Canvas canvas, Size size, AppBackdropStyle style) {
               AppTheme.accent.withValues(alpha: 0.0),
             ],
           ).createShader(Rect.fromLTWH(w * 0.4, 0, w * 0.6, h * 0.2))
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, math.max(12, w * 0.05)),
+          ..maskFilter = MaskFilter.blur(
+            BlurStyle.normal,
+            math.max(12, w * 0.05),
+          ),
       );
   }
 

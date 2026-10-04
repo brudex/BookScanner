@@ -20,6 +20,7 @@ import '../../../../l10n/gen/app_localizations.dart';
 import '../../../../routing/app_router.dart';
 import '../../../core/di/service_locator.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_backdrop.dart';
 import '../../../core/widgets/text_input_dialog.dart';
 import '../view_models/page_review_view_model.dart';
 import 'export_convert_sheet.dart';
@@ -215,81 +216,163 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
       ),
       child: Theme(
         data: AppTheme.homeShell(),
-        child: Scaffold(
-          backgroundColor: AppTheme.homeBackground,
-          appBar: AppBar(
-            title: Text(l10n.reviewTitle),
-            actions: [
-              ListenableBuilder(
-                listenable: _viewModel,
-                builder: (context, _) => IconButton(
-                  key: const ValueKey('reviewToggleGridButton'),
-                  tooltip: l10n.toggleGridView,
-                  style: IconButton.styleFrom(
-                    backgroundColor: AppTheme.homeIconWell,
-                    foregroundColor: AppTheme.accent,
+        child: Stack(
+          children: [
+            const Positioned.fill(child: AppBackdrop()),
+            Scaffold(
+              backgroundColor: Colors.transparent,
+              appBar: AppBar(
+                title: Text(l10n.reviewTitle),
+                actions: [
+                  ListenableBuilder(
+                    listenable: _viewModel,
+                    builder: (context, _) => IconButton(
+                      key: const ValueKey('reviewToggleGridButton'),
+                      tooltip: l10n.toggleGridView,
+                      style: IconButton.styleFrom(
+                        backgroundColor: AppTheme.homeIconWell,
+                        foregroundColor: AppTheme.accent,
+                      ),
+                      icon: Icon(
+                        _viewModel.gridView
+                            ? LucideIcons.layoutGrid
+                            : LucideIcons.list,
+                      ),
+                      onPressed: _viewModel.toggleGridView,
+                    ),
                   ),
-                  icon: Icon(
-                    _viewModel.gridView
-                        ? LucideIcons.layoutGrid
-                        : LucideIcons.list,
-                  ),
-                  onPressed: _viewModel.toggleGridView,
-                ),
+                  const SizedBox(width: 8),
+                ],
               ),
-              const SizedBox(width: 8),
-            ],
-          ),
-          body: Stack(
-            children: [
-              ListenableBuilder(
-                listenable: _viewModel,
-                builder: (context, _) {
-                  if (_viewModel.loading) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (_viewModel.pages.isEmpty) {
-                    return Center(child: Text(l10n.pagesScanned(0)));
-                  }
+              body: Stack(
+                children: [
+                  ListenableBuilder(
+                    listenable: _viewModel,
+                    builder: (context, _) {
+                      if (_viewModel.loading) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (_viewModel.pages.isEmpty) {
+                        return Center(child: Text(l10n.pagesScanned(0)));
+                      }
 
-                  VoidCallback onCropFor(ScanPage page) =>
-                      () => context.push(
-                        AppRoutes.cropCorrectionFor(widget.projectId, page.id),
-                      );
-                  VoidCallback onAdjustFor(ScanPage page) =>
-                      () => context.push(
-                        AppRoutes.filterAdjustmentFor(
-                          widget.projectId,
-                          page.id,
-                        ),
-                      );
-                  VoidCallback? onResplitFor(ScanPage page) =>
-                      _splitActionFor(page);
-                  VoidCallback onRescanFor(ScanPage page) =>
-                      () => context.push(
-                        AppRoutes.captureFor(widget.projectId),
-                        extra: page.id,
-                      );
-                  Future<void> onPageLabelFor(ScanPage page) async {
-                    final label = await showTextInputDialog(
-                      context: context,
-                      title: l10n.pageLabelTitle,
-                      label: l10n.pageLabelHint,
-                      initialText: page.logicalPageLabel ?? '',
-                      cancelLabel: l10n.cancel,
-                      saveLabel: l10n.save,
-                    );
-                    if (!mounted || label == null) return;
-                    await _viewModel.setLogicalPageLabel(page, label);
-                  }
+                      VoidCallback onCropFor(ScanPage page) =>
+                          () => context.push(
+                            AppRoutes.cropCorrectionFor(
+                              widget.projectId,
+                              page.id,
+                            ),
+                          );
+                      VoidCallback onAdjustFor(ScanPage page) =>
+                          () => context.push(
+                            AppRoutes.filterAdjustmentFor(
+                              widget.projectId,
+                              page.id,
+                            ),
+                          );
+                      VoidCallback? onResplitFor(ScanPage page) =>
+                          _splitActionFor(page);
+                      VoidCallback onRescanFor(ScanPage page) =>
+                          () => context.push(
+                            AppRoutes.captureFor(widget.projectId),
+                            extra: page.id,
+                          );
+                      Future<void> onPageLabelFor(ScanPage page) async {
+                        final label = await showTextInputDialog(
+                          context: context,
+                          title: l10n.pageLabelTitle,
+                          label: l10n.pageLabelHint,
+                          initialText: page.logicalPageLabel ?? '',
+                          cancelLabel: l10n.cancel,
+                          saveLabel: l10n.save,
+                        );
+                        if (!mounted || label == null) return;
+                        await _viewModel.setLogicalPageLabel(page, label);
+                      }
 
-                  VoidCallback onPreviewFor(ScanPage page, int index) =>
-                      () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => _PagePreviewScreen(
+                      VoidCallback onPreviewFor(ScanPage page, int index) =>
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => _PagePreviewScreen(
+                                page: page,
+                                index: index,
+                                l10n: l10n,
+                                onRotate: () => _viewModel.rotate(page),
+                                onDuplicate: () => _viewModel.duplicate(page),
+                                onDelete: () => _confirmAndDelete([page]),
+                                onRevert: () =>
+                                    _viewModel.revertToOriginal(page),
+                                onRescan: onRescanFor(page),
+                                onCrop: onCropFor(page),
+                                onAdjust: onAdjustFor(page),
+                                onResplit: onResplitFor(page),
+                                onPageLabel: () => onPageLabelFor(page),
+                              ),
+                            ),
+                          );
+
+                      if (_viewModel.gridView) {
+                        return GridView.builder(
+                          key: const ValueKey('pageReviewGrid'),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                                childAspectRatio: 0.72,
+                              ),
+                          itemCount: _viewModel.pages.length,
+                          itemBuilder: (context, index) {
+                            final page = _viewModel.pages[index];
+                            return _PageGridTile(
+                              key: ValueKey('page-${page.id}'),
+                              page: page,
+                              index: index,
+                              l10n: l10n,
+                              selected: _viewModel.selectedIds.contains(
+                                page.id,
+                              ),
+                              selectionMode: _viewModel.selectedIds.isNotEmpty,
+                              onTap: _viewModel.selectedIds.isNotEmpty
+                                  ? () => _viewModel.toggleSelected(page.id)
+                                  : onPreviewFor(page, index),
+                              onLongPress: () =>
+                                  _viewModel.toggleSelected(page.id),
+                              onRotate: () => _viewModel.rotate(page),
+                              onDuplicate: () => _viewModel.duplicate(page),
+                              onDelete: () => _confirmAndDelete([page]),
+                              onRevert: () => _viewModel.revertToOriginal(page),
+                              onRescan: onRescanFor(page),
+                              onCrop: onCropFor(page),
+                              onAdjust: onAdjustFor(page),
+                              onResplit: onResplitFor(page),
+                              onPageLabel: () => onPageLabelFor(page),
+                            );
+                          },
+                        );
+                      }
+
+                      return ReorderableListView.builder(
+                        key: const ValueKey('pageReviewList'),
+                        buildDefaultDragHandles: false,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        itemCount: _viewModel.pages.length,
+                        onReorder: _viewModel.reorder,
+                        itemBuilder: (context, index) {
+                          final page = _viewModel.pages[index];
+                          return _PageTile(
+                            key: ValueKey('page-${page.id}'),
                             page: page,
                             index: index,
                             l10n: l10n,
+                            selected: _viewModel.selectedIds.contains(page.id),
+                            selectionMode: _viewModel.selectedIds.isNotEmpty,
+                            onTap: _viewModel.selectedIds.isNotEmpty
+                                ? () => _viewModel.toggleSelected(page.id)
+                                : onPreviewFor(page, index),
+                            onLongPress: () =>
+                                _viewModel.toggleSelected(page.id),
                             onRotate: () => _viewModel.rotate(page),
                             onDuplicate: () => _viewModel.duplicate(page),
                             onDelete: () => _confirmAndDelete([page]),
@@ -299,275 +382,223 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
                             onAdjust: onAdjustFor(page),
                             onResplit: onResplitFor(page),
                             onPageLabel: () => onPageLabelFor(page),
-                          ),
-                        ),
-                      );
-
-                  if (_viewModel.gridView) {
-                    return GridView.builder(
-                      key: const ValueKey('pageReviewGrid'),
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 0.72,
-                          ),
-                      itemCount: _viewModel.pages.length,
-                      itemBuilder: (context, index) {
-                        final page = _viewModel.pages[index];
-                        return _PageGridTile(
-                          key: ValueKey('page-${page.id}'),
-                          page: page,
-                          index: index,
-                          l10n: l10n,
-                          selected: _viewModel.selectedIds.contains(page.id),
-                          selectionMode: _viewModel.selectedIds.isNotEmpty,
-                          onTap: _viewModel.selectedIds.isNotEmpty
-                              ? () => _viewModel.toggleSelected(page.id)
-                              : onPreviewFor(page, index),
-                          onLongPress: () => _viewModel.toggleSelected(page.id),
-                          onRotate: () => _viewModel.rotate(page),
-                          onDuplicate: () => _viewModel.duplicate(page),
-                          onDelete: () => _confirmAndDelete([page]),
-                          onRevert: () => _viewModel.revertToOriginal(page),
-                          onRescan: onRescanFor(page),
-                          onCrop: onCropFor(page),
-                          onAdjust: onAdjustFor(page),
-                          onResplit: onResplitFor(page),
-                          onPageLabel: () => onPageLabelFor(page),
-                        );
-                      },
-                    );
-                  }
-
-                  return ReorderableListView.builder(
-                    key: const ValueKey('pageReviewList'),
-                    buildDefaultDragHandles: false,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    itemCount: _viewModel.pages.length,
-                    onReorder: _viewModel.reorder,
-                    itemBuilder: (context, index) {
-                      final page = _viewModel.pages[index];
-                      return _PageTile(
-                        key: ValueKey('page-${page.id}'),
-                        page: page,
-                        index: index,
-                        l10n: l10n,
-                        selected: _viewModel.selectedIds.contains(page.id),
-                        selectionMode: _viewModel.selectedIds.isNotEmpty,
-                        onTap: _viewModel.selectedIds.isNotEmpty
-                            ? () => _viewModel.toggleSelected(page.id)
-                            : onPreviewFor(page, index),
-                        onLongPress: () => _viewModel.toggleSelected(page.id),
-                        onRotate: () => _viewModel.rotate(page),
-                        onDuplicate: () => _viewModel.duplicate(page),
-                        onDelete: () => _confirmAndDelete([page]),
-                        onRevert: () => _viewModel.revertToOriginal(page),
-                        onRescan: onRescanFor(page),
-                        onCrop: onCropFor(page),
-                        onAdjust: onAdjustFor(page),
-                        onResplit: onResplitFor(page),
-                        onPageLabel: () => onPageLabelFor(page),
-                        onDismissDuplicate: () =>
-                            _viewModel.dismissWarning(page, 'duplicate'),
-                        onDismissMissing: () =>
-                            _viewModel.dismissWarning(page, 'missing'),
+                            onDismissDuplicate: () =>
+                                _viewModel.dismissWarning(page, 'duplicate'),
+                            onDismissMissing: () =>
+                                _viewModel.dismissWarning(page, 'missing'),
+                            onDismissLowQuality: () =>
+                                _viewModel.dismissWarning(page, 'lowQuality'),
+                          );
+                        },
                       );
                     },
-                  );
-                },
-              ),
-              ListenableBuilder(
-                listenable: _viewModel,
-                builder: (context, _) {
-                  if (!_importing) return const SizedBox.shrink();
-                  return const ColoredBox(
-                    color: Color(0x8804100C),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        key: ValueKey('reviewImporting'),
-                        color: AppTheme.accent,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-          bottomNavigationBar: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-              child: ListenableBuilder(
-                listenable: _viewModel,
-                builder: (context, _) {
-                  final selected = _viewModel.selectedIds.length;
-                  final canExport = _viewModel.pages.isNotEmpty && !_importing;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          bottom: 8,
-                          left: 4,
-                          right: 4,
+                  ),
+                  ListenableBuilder(
+                    listenable: _viewModel,
+                    builder: (context, _) {
+                      if (!_importing) return const SizedBox.shrink();
+                      return const ColoredBox(
+                        color: Color(0x8804100C),
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            key: ValueKey('reviewImporting'),
+                            color: AppTheme.accent,
+                          ),
                         ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                selected == 0
-                                    ? l10n.pagesScanned(_viewModel.pages.length)
-                                    : l10n.selectedCount(selected),
-                                style: const TextStyle(
-                                  fontFamily: AppTheme.fontFamily,
-                                  color: AppTheme.homeMuted,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              bottomNavigationBar: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: ListenableBuilder(
+                    listenable: _viewModel,
+                    builder: (context, _) {
+                      final selected = _viewModel.selectedIds.length;
+                      final canExport =
+                          _viewModel.pages.isNotEmpty && !_importing;
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: 8,
+                              left: 4,
+                              right: 4,
                             ),
-                            if (selected > 0) ...[
-                              IconButton(
-                                key: const ValueKey('reviewSelectionCancel'),
-                                onPressed: _viewModel.clearSelection,
-                                icon: const Icon(
-                                  LucideIcons.x,
-                                  color: AppTheme.homeIcon,
-                                  size: 18,
-                                ),
-                              ),
-                              IconButton(
-                                key: const ValueKey('reviewSelectionRotate'),
-                                onPressed: _viewModel.rotateSelected,
-                                icon: const Icon(
-                                  LucideIcons.rotateCw,
-                                  color: AppTheme.homeIcon,
-                                  size: 18,
-                                ),
-                              ),
-                              IconButton(
-                                key: const ValueKey('reviewSelectionDuplicate'),
-                                onPressed: _viewModel.duplicateSelected,
-                                icon: const Icon(
-                                  LucideIcons.copy,
-                                  color: AppTheme.homeIcon,
-                                  size: 18,
-                                ),
-                              ),
-                              IconButton(
-                                key: const ValueKey('reviewSelectionDelete'),
-                                onPressed: () => _confirmAndDelete(null),
-                                icon: const Icon(
-                                  LucideIcons.trash2,
-                                  color: Color(0xFFE05353),
-                                  size: 18,
-                                ),
-                              ),
-                            ] else
-                              TextButton.icon(
-                                key: const ValueKey('reviewPageOrderButton'),
-                                onPressed: _viewModel.gridView
-                                    ? _viewModel.toggleGridView
-                                    : null,
-                                icon: const Icon(
-                                  LucideIcons.arrowUpDown,
-                                  size: 16,
-                                  color: AppTheme.accent,
-                                ),
-                                label: Text(
-                                  l10n.reviewPageOrder,
-                                  style: const TextStyle(
-                                    fontFamily: AppTheme.fontFamily,
-                                    color: AppTheme.accent,
-                                    fontWeight: FontWeight.w600,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    selected == 0
+                                        ? l10n.pagesScanned(
+                                            _viewModel.pages.length,
+                                          )
+                                        : l10n.selectedCount(selected),
+                                    style: const TextStyle(
+                                      fontFamily: AppTheme.fontFamily,
+                                      color: AppTheme.homeMuted,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: _ReviewAddAction(
-                                key: const ValueKey('reviewAddCamera'),
-                                icon: LucideIcons.camera,
-                                label: l10n.reviewAddCamera,
-                                onPressed: _importing ? null : _openCamera,
-                              ),
+                                if (selected > 0) ...[
+                                  IconButton(
+                                    key: const ValueKey(
+                                      'reviewSelectionCancel',
+                                    ),
+                                    onPressed: _viewModel.clearSelection,
+                                    icon: const Icon(
+                                      LucideIcons.x,
+                                      color: AppTheme.homeIcon,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    key: const ValueKey(
+                                      'reviewSelectionRotate',
+                                    ),
+                                    onPressed: _viewModel.rotateSelected,
+                                    icon: const Icon(
+                                      LucideIcons.rotateCw,
+                                      color: AppTheme.homeIcon,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    key: const ValueKey(
+                                      'reviewSelectionDuplicate',
+                                    ),
+                                    onPressed: _viewModel.duplicateSelected,
+                                    icon: const Icon(
+                                      LucideIcons.copy,
+                                      color: AppTheme.homeIcon,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    key: const ValueKey(
+                                      'reviewSelectionDelete',
+                                    ),
+                                    onPressed: () => _confirmAndDelete(null),
+                                    icon: const Icon(
+                                      LucideIcons.trash2,
+                                      color: Color(0xFFE05353),
+                                      size: 18,
+                                    ),
+                                  ),
+                                ] else
+                                  TextButton.icon(
+                                    key: const ValueKey(
+                                      'reviewPageOrderButton',
+                                    ),
+                                    onPressed: _viewModel.gridView
+                                        ? _viewModel.toggleGridView
+                                        : null,
+                                    icon: const Icon(
+                                      LucideIcons.arrowUpDown,
+                                      size: 16,
+                                      color: AppTheme.accent,
+                                    ),
+                                    label: Text(
+                                      l10n.reviewPageOrder,
+                                      style: const TextStyle(
+                                        fontFamily: AppTheme.fontFamily,
+                                        color: AppTheme.accent,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _ReviewAddAction(
-                                key: const ValueKey('reviewAddGallery'),
-                                icon: LucideIcons.image,
-                                label: l10n.reviewAddGallery,
-                                onPressed: _importing
-                                    ? null
-                                    : _importFromGallery,
-                              ),
+                          ),
+                          IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  child: _ReviewAddAction(
+                                    key: const ValueKey('reviewAddCamera'),
+                                    icon: LucideIcons.camera,
+                                    label: l10n.reviewAddCamera,
+                                    onPressed: _importing ? null : _openCamera,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _ReviewAddAction(
+                                    key: const ValueKey('reviewAddGallery'),
+                                    icon: LucideIcons.image,
+                                    label: l10n.reviewAddGallery,
+                                    onPressed: _importing
+                                        ? null
+                                        : _importFromGallery,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _ReviewAddAction(
+                                    key: const ValueKey('reviewAddFromFiles'),
+                                    icon: LucideIcons.fileUp,
+                                    label: l10n.reviewAddFromFiles,
+                                    onPressed: _importing
+                                        ? null
+                                        : _importFromFiles,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _ReviewAddAction(
-                                key: const ValueKey('reviewAddFromFiles'),
-                                icon: LucideIcons.fileUp,
-                                label: l10n.reviewAddFromFiles,
-                                onPressed: _importing ? null : _importFromFiles,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(28),
-                          gradient: canExport
-                              ? const LinearGradient(
-                                  colors: [
-                                    AppTheme.accent,
-                                    AppTheme.accentDeep,
-                                  ],
-                                )
-                              : null,
-                          color: canExport ? null : AppTheme.homeCard,
-                        ),
-                        child: FilledButton.icon(
-                          key: const ValueKey('reviewExportButton'),
-                          onPressed: canExport ? _openExportSheet : null,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            disabledBackgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            foregroundColor: const Color(0xFF04140C),
-                            disabledForegroundColor: AppTheme.homeMuted,
-                            minimumSize: const Size.fromHeight(52),
-                            shape: RoundedRectangleBorder(
+                          ),
+                          const SizedBox(height: 10),
+                          DecoratedBox(
+                            decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(28),
+                              gradient: canExport
+                                  ? const LinearGradient(
+                                      colors: [
+                                        AppTheme.accent,
+                                        AppTheme.accentDeep,
+                                      ],
+                                    )
+                                  : null,
+                              color: canExport ? null : AppTheme.homeCard,
+                            ),
+                            child: FilledButton.icon(
+                              key: const ValueKey('reviewExportButton'),
+                              onPressed: canExport ? _openExportSheet : null,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                disabledBackgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                foregroundColor: const Color(0xFF04140C),
+                                disabledForegroundColor: AppTheme.homeMuted,
+                                minimumSize: const Size.fromHeight(52),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(28),
+                                ),
+                              ),
+                              icon: const Icon(LucideIcons.share, size: 18),
+                              label: Text(
+                                l10n.reviewExportConvert,
+                                style: const TextStyle(
+                                  fontFamily: AppTheme.fontFamily,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                ),
+                              ),
                             ),
                           ),
-                          icon: const Icon(LucideIcons.share, size: 18),
-                          label: Text(
-                            l10n.reviewExportConvert,
-                            style: const TextStyle(
-                              fontFamily: AppTheme.fontFamily,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
+                        ],
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -735,6 +766,7 @@ class _PageTile extends StatelessWidget {
     required this.onPageLabel,
     this.onDismissDuplicate,
     this.onDismissMissing,
+    this.onDismissLowQuality,
     this.selected = false,
     this.selectionMode = false,
     this.onTap,
@@ -755,6 +787,7 @@ class _PageTile extends StatelessWidget {
   final VoidCallback onPageLabel;
   final VoidCallback? onDismissDuplicate;
   final VoidCallback? onDismissMissing;
+  final VoidCallback? onDismissLowQuality;
   final bool selected;
   final bool selectionMode;
   final VoidCallback? onTap;
@@ -875,30 +908,109 @@ class _PageTile extends StatelessWidget {
     if (page.duplicateOfPageId != null &&
         !page.dismissedWarnings.contains('duplicate')) {
       chips.add(
-        InputChip(
+        _WarningPill(
           key: ValueKey('dismissDuplicate-${page.id}'),
-          label: Text(l10n.possibleDuplicate),
-          onDeleted: onDismissDuplicate,
-          deleteButtonTooltipMessage: l10n.dismissWarning,
+          label: l10n.possibleDuplicate,
+          onDismiss: onDismissDuplicate,
+          dismissTooltip: l10n.dismissWarning,
         ),
       );
     }
     if (page.likelyMissingBefore &&
         !page.dismissedWarnings.contains('missing')) {
       chips.add(
-        InputChip(
+        _WarningPill(
           key: ValueKey('dismissMissing-${page.id}'),
-          label: Text(l10n.possibleMissingPage),
-          onDeleted: onDismissMissing,
-          deleteButtonTooltipMessage: l10n.dismissWarning,
+          label: l10n.possibleMissingPage,
+          onDismiss: onDismissMissing,
+          dismissTooltip: l10n.dismissWarning,
         ),
       );
     }
-    if (page.status == PageStatus.needsRescan) {
-      chips.add(InputChip(label: Text(l10n.lowQuality)));
+    if (page.status == PageStatus.needsRescan &&
+        !page.dismissedWarnings.contains('lowQuality')) {
+      chips.add(
+        _WarningPill(
+          key: ValueKey('dismissLowQuality-${page.id}'),
+          label: l10n.lowQuality,
+          onDismiss: onDismissLowQuality,
+          dismissTooltip: l10n.dismissWarning,
+        ),
+      );
     }
     if (chips.isEmpty) return null;
-    return Wrap(spacing: 4, runSpacing: 4, children: chips);
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(spacing: 6, runSpacing: 6, children: chips),
+    );
+  }
+}
+
+/// A page warning in Review. Wraps onto a second line instead of being cut
+/// off (an action-less InputChip also rendered in the greyed "disabled"
+/// style), and every warning can be dismissed.
+class _WarningPill extends StatelessWidget {
+  const _WarningPill({
+    super.key,
+    required this.label,
+    required this.dismissTooltip,
+    this.onDismiss,
+  });
+
+  final String label;
+  final String dismissTooltip;
+  final VoidCallback? onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0x33FFB547),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0x66FFB547)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(8, 4, onDismiss == null ? 8 : 2, 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              LucideIcons.triangleAlert,
+              size: 14,
+              color: Color(0xFFFFC56B),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 2,
+                softWrap: true,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  color: AppTheme.homeText,
+                  fontSize: 12,
+                  height: 1.2,
+                ),
+              ),
+            ),
+            if (onDismiss != null)
+              IconButton(
+                tooltip: dismissTooltip,
+                onPressed: onDismiss,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                icon: const Icon(
+                  LucideIcons.x,
+                  size: 14,
+                  color: AppTheme.homeMuted,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

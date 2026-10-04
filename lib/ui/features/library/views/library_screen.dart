@@ -18,6 +18,7 @@ import '../../../../routing/app_router.dart';
 import '../../../core/di/service_locator.dart';
 import '../../../core/discard_unsaved_capture.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_backdrop.dart';
 import '../../../core/widgets/text_input_dialog.dart';
 import '../view_models/library_view_model.dart';
 import 'project_list_row.dart';
@@ -210,7 +211,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         data: AppTheme.homeShell(),
         child: Stack(
           children: [
-            const Positioned.fill(child: _HomeAmbientBackground()),
+            const Positioned.fill(
+              child: AppBackdrop(style: AppBackdropStyle.home),
+            ),
             Scaffold(
               backgroundColor: Colors.transparent,
               extendBody: true,
@@ -598,71 +601,6 @@ class _RoundHeaderButton extends StatelessWidget {
       ),
     );
   }
-}
-
-class _HomeAmbientBackground extends StatelessWidget {
-  const _HomeAmbientBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(gradient: AppTheme.homeGradient),
-      child: CustomPaint(painter: _HomeGlowPainter()),
-    );
-  }
-}
-
-class _HomeGlowPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final top = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              AppTheme.accent.withValues(alpha: 0.28),
-              AppTheme.accent.withValues(alpha: 0.0),
-            ],
-          ).createShader(
-            Rect.fromCircle(
-              center: Offset(size.width * 0.85, size.height * 0.08),
-              radius: size.width * 0.55,
-            ),
-          );
-    canvas.drawRect(Offset.zero & size, top);
-
-    final mid = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              const Color(0xFF1DBF5A).withValues(alpha: 0.22),
-              Colors.transparent,
-            ],
-          ).createShader(
-            Rect.fromCircle(
-              center: Offset(size.width * 0.1, size.height * 0.45),
-              radius: size.width * 0.7,
-            ),
-          );
-    canvas.drawRect(Offset.zero & size, mid);
-
-    final bottom = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              AppTheme.accent.withValues(alpha: 0.18),
-              Colors.transparent,
-            ],
-          ).createShader(
-            Rect.fromCircle(
-              center: Offset(size.width * 0.6, size.height * 0.92),
-              radius: size.width * 0.65,
-            ),
-          );
-    canvas.drawRect(Offset.zero & size, bottom);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _QuickStartRow extends StatelessWidget {
