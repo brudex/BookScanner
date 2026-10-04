@@ -215,7 +215,10 @@ class ExportViewModel extends ChangeNotifier {
   bool _serverFormat(ExportFormat format) =>
       format == ExportFormat.searchablePdf ||
       format == ExportFormat.markdown ||
-      format == ExportFormat.epub;
+      format == ExportFormat.epub ||
+      // The server OCRs and builds the Word file; the on-device writer only
+      // used OCR text already stored, so unscanned pages came out empty.
+      format == ExportFormat.docx;
 
   @override
   void dispose() {

@@ -570,6 +570,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reviewExportToEpub => 'Export to EPUB';
 
   @override
+  String get reviewExportWord => 'Export as Word';
+
+  @override
+  String get reviewExportWordHint =>
+      'An editable .docx with the scanned pages, for Microsoft Word or Google Docs.';
+
+  @override
+  String get reviewExportToWord => 'Export to Word';
+
+  @override
   String get reviewIncludePageMarkers => 'Page markers';
 
   @override

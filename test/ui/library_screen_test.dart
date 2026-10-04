@@ -3,7 +3,6 @@ import 'package:bookscanner/l10n/gen/app_localizations.dart';
 import 'package:bookscanner/ui/core/theme/app_theme.dart';
 import 'package:bookscanner/ui/features/library/view_models/library_view_model.dart';
 import 'package:bookscanner/ui/features/library/views/library_screen.dart';
-import 'package:bookscanner/ui/features/library/views/project_list_row.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -130,7 +129,7 @@ void main() {
   });
 
   testWidgets(
-    "a project row's context menu offers Delete and a not-yet-implemented Recognize text",
+    "a project row's context menu offers Delete and no Recognize text",
     (tester) async {
       final repository = FakeProjectRepository();
       final now = DateTime.now();
@@ -161,13 +160,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Delete'), findsOneWidget);
-      final recognizeItem = tester.widget<PopupMenuItem<ProjectRowAction>>(
-        find.ancestor(
-          of: find.text('Recognize text'),
-          matching: find.byType(PopupMenuItem<ProjectRowAction>),
-        ),
-      );
-      expect(recognizeItem.enabled, isFalse);
+      // Removed: export runs OCR, so the row no longer offers it.
+      expect(find.text('Recognize text'), findsNothing);
     },
   );
 

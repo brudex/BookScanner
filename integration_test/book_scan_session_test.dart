@@ -20,6 +20,8 @@ import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'support/post_capture_helpers.dart';
+
 /// Stands in for the system document scanner (ML Kit / VisionKit) that
 /// book mode opens: each scan returns [pagesPerScan] real JPEGs marked
 /// `nativeReady`, as Google's scanner returns already-flattened pages.
@@ -233,10 +235,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pageReviewList')), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('reviewExportButton')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('exportFormatMarkdown')));
-      await tester.pumpAndSettle();
+      await exportFromReviewSheet(tester, 'reviewExportMarkdown');
 
       expect(
         find.byKey(const ValueKey('exportCompleteMessage')),

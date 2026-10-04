@@ -172,10 +172,7 @@ void main() {
     (tester) async {
       final projectId = await captureOnePageAndReachReview(tester);
 
-      await tester.tap(find.byKey(const ValueKey('reviewExportButton')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('exportFormatImagePdf')));
-      await tester.pumpAndSettle();
+      await exportFromReviewSheet(tester, 'reviewExportPdf');
 
       expect(
         find.byKey(const ValueKey('exportCompleteMessage')),
@@ -199,10 +196,7 @@ void main() {
   ) async {
     final projectId = await captureOnePageAndReachReview(tester);
 
-    await tester.tap(find.byKey(const ValueKey('reviewExportButton')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('exportFormatDocx')));
-    await tester.pumpAndSettle();
+    await exportFromReviewSheet(tester, 'reviewExportWord');
 
     expect(find.byKey(const ValueKey('exportCompleteMessage')), findsOneWidget);
     expect(find.byKey(const ValueKey('exportShareButton')), findsOneWidget);

@@ -17,6 +17,7 @@ import 'package:bookscanner/domain/use_cases/export_project_use_case.dart';
 import 'package:bookscanner/l10n/gen/app_localizations.dart';
 import 'package:bookscanner/ui/features/export/view_models/export_view_model.dart';
 import 'package:bookscanner/ui/features/export/views/export_screen.dart';
+import 'package:bookscanner/ui/features/page_review/views/export_convert_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -280,40 +281,114 @@ void main() {
     exportImagesUseCase: exportImagesUseCase,
   );
 
-  testWidgets('shows all four export format options initially', (tester) async {
-    final viewModel = buildViewModel();
-    await tester.pumpWidget(
-      _wrap(ExportScreen(projectId: 'proj1', viewModel: viewModel)),
-    );
-    await tester.pump();
+  testWidgets(
+    'opened without a format, shows the Export / Convert sheet (with Word) '
+    'instead of the old options form',
+    (tester) async {
+      final viewModel = buildViewModel();
+      await tester.pumpWidget(
+        _wrap(ExportScreen(projectId: 'proj1', viewModel: viewModel)),
+      );
+      // The progress bar behind the sheet animates, so pump for the sheet's
+      // entrance instead of waiting to settle.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
 
-    expect(find.byKey(const ValueKey('exportFormatImagePdf')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('exportFormatSearchablePdf')),
-      findsOneWidget,
+      expect(find.byKey(const ValueKey('reviewExportPdf')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('reviewExportMarkdown')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('reviewExportEpub')), findsOneWidget);
+      expect(find.byKey(const ValueKey('reviewExportWord')), findsOneWidget);
+      // The old form is gone.
+      expect(find.byKey(const ValueKey('pdfOptionsPanel')), findsNothing);
+      expect(find.byKey(const ValueKey('exportFormatDocx')), findsNothing);
+    },
+  );
+
+  testWidgets('choosing Word on the sheet produces a Word launch', (
+    tester,
+  ) async {
+    ExportLaunch? chosen;
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () async =>
+                chosen = await showExportConvertSheet(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
     );
-    expect(find.byKey(const ValueKey('exportFormatMarkdown')), findsOneWidget);
-    expect(find.byKey(const ValueKey('exportFormatDocx')), findsOneWidget);
-    expect(find.byKey(const ValueKey('pdfOptionsPanel')), findsOneWidget);
-    expect(find.byKey(const ValueKey('pdfWatermarkField')), findsOneWidget);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('reviewExportWord')));
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('reviewExportConfirm')),
+    );
+    await tester.tap(find.byKey(const ValueKey('reviewExportConfirm')));
+    await tester.pumpAndSettle();
+
+    expect(chosen?.format, ExportFormat.docx);
   });
 
-  testWidgets('watermark field updates pdf options on the view model', (
+  testWidgets('PDF starts with Recognize text off (image-only PDF)', (
+    tester,
+  ) async {
+    ExportLaunch? chosen;
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () async =>
+                chosen = await showExportConvertSheet(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    final ocr = tester.widget<Switch>(
+      find.descendant(
+        of: find.byKey(const ValueKey('reviewExportOcrSwitch')),
+        matching: find.byType(Switch),
+      ),
+    );
+    expect(ocr.value, isFalse);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('reviewExportConfirm')),
+    );
+    await tester.tap(find.byKey(const ValueKey('reviewExportConfirm')));
+    await tester.pumpAndSettle();
+
+    expect(chosen?.format, ExportFormat.imagePdf);
+    expect(chosen?.pdfOptions?.searchable, isFalse);
+  });
+
+  testWidgets('launched with a format, shows progress straight away', (
     tester,
   ) async {
     final viewModel = buildViewModel();
     await tester.pumpWidget(
-      _wrap(ExportScreen(projectId: 'proj1', viewModel: viewModel)),
+      _wrap(
+        ExportScreen(
+          projectId: 'proj1',
+          viewModel: viewModel,
+          launch: const ExportLaunch(format: ExportFormat.markdown),
+        ),
+      ),
     );
     await tester.pump();
 
-    await tester.enterText(
-      find.byKey(const ValueKey('pdfWatermarkField')),
-      'Confidential',
-    );
-    await tester.pump();
-
-    expect(viewModel.pdfOptions.watermarkText, 'Confidential');
+    expect(find.byKey(const ValueKey('exportProgressBar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('reviewExportPdf')), findsNothing);
+    expect(find.byKey(const ValueKey('pdfOptionsPanel')), findsNothing);
   });
 
   testWidgets(

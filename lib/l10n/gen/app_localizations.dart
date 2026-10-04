@@ -1078,6 +1078,24 @@ abstract class AppLocalizations {
   /// **'Export to EPUB'**
   String get reviewExportToEpub;
 
+  /// Export / Convert sheet: Word (.docx) format card title
+  ///
+  /// In en, this message translates to:
+  /// **'Export as Word'**
+  String get reviewExportWord;
+
+  /// Export / Convert sheet: Word format card subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'An editable .docx with the scanned pages, for Microsoft Word or Google Docs.'**
+  String get reviewExportWordHint;
+
+  /// Export / Convert sheet confirm button for Word
+  ///
+  /// In en, this message translates to:
+  /// **'Export to Word'**
+  String get reviewExportToWord;
+
   /// Markdown setting: comment between pages
   ///
   /// In en, this message translates to:

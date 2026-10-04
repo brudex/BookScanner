@@ -156,16 +156,7 @@ class _PageReviewScreenState extends State<PageReviewScreen> {
 
   Future<void> _openExportSheet() async {
     if (_viewModel.pages.isEmpty) return;
-    final launch = await showModalBottomSheet<ExportLaunch>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF10241C),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) =>
-          Theme(data: AppTheme.homeShell(), child: const ExportConvertSheet()),
-    );
+    final launch = await showExportConvertSheet(context);
     if (launch == null || !mounted) return;
     context.push(AppRoutes.exportFor(widget.projectId), extra: launch);
   }

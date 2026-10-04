@@ -14,7 +14,6 @@ enum ProjectRowAction {
   moveToFolder,
   editTags,
   delete,
-  recognizeText,
 }
 
 class ProjectListRow extends StatelessWidget {
@@ -201,7 +200,6 @@ class ProjectListRow extends StatelessWidget {
                             onEditTags?.call();
                           case ProjectRowAction.delete:
                             onDelete!();
-                          case ProjectRowAction.recognizeText:
                         }
                       },
                       itemBuilder: (context) => [
@@ -225,11 +223,6 @@ class ProjectListRow extends StatelessWidget {
                             value: ProjectRowAction.editTags,
                             child: Text(l10n.editTags),
                           ),
-                        PopupMenuItem(
-                          value: ProjectRowAction.recognizeText,
-                          enabled: false,
-                          child: Text(l10n.ocrAction),
-                        ),
                         PopupMenuItem(
                           value: ProjectRowAction.delete,
                           child: Text(l10n.delete),
