@@ -1592,7 +1592,8 @@ class _BookThumbBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final path = page.thumbnailPath ?? page.processedImagePath;
+    final path =
+        page.thumbnailPath ?? page.processedImagePath ?? page.originalImagePath;
     return SizedBox(
       width: 48,
       height: 60,
@@ -1845,7 +1846,10 @@ class _BookSessionPagesSheet extends StatelessWidget {
                 itemCount: pages.length,
                 itemBuilder: (context, index) {
                   final page = pages[index];
-                  final path = page.thumbnailPath ?? page.processedImagePath;
+                  final path =
+                      page.thumbnailPath ??
+                      page.processedImagePath ??
+                      page.originalImagePath;
                   return ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Stack(
