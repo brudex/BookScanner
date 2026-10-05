@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,21 +5,20 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:uuid/uuid.dart';
 
-import '../../../../data/services/local/app_paths.dart';
 import '../../../../domain/models/capture_models.dart';
 import '../../../../domain/models/project.dart';
-import '../../../../domain/models/provider_info.dart';
-import '../../../../domain/providers/pdf_rasterizer_provider.dart';
 import '../../../../domain/repositories/folder_repository.dart';
 import '../../../../domain/repositories/page_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
-import '../../../../domain/use_cases/capture_page_use_case.dart';
+import '../../../../domain/models/scan_page.dart';
+import '../../../../domain/use_cases/import_pages_use_case.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../../routing/app_router.dart';
 import '../../../core/di/service_locator.dart';
+import '../../../core/discard_unsaved_capture.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_backdrop.dart';
 import '../../../core/widgets/text_input_dialog.dart';
 import '../view_models/library_view_model.dart';
 import 'project_list_row.dart';
@@ -114,36 +111,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_importing) return;
     final files = await ImagePicker().pickMultiImage();
     if (files.isEmpty || !mounted) return;
-    setState(() => _importing = true);
-    try {
-      final project = await _createProject(ProjectType.document);
-      final useCase = locator<CapturePageUseCase>();
-      const info = ProviderInfo(
-        providerName: 'gallery-import',
-        adapterVersion: '1.0.0',
-      );
-      var sequence = 0;
-      for (final file in files) {
-        await useCase.processCapture(
-          capture: StillCapture(
-            originalImagePath: file.path,
-            detectedQuad: null,
-            qualityScore: 0.8,
-            warnings: const {},
-            capturedAtMs: DateTime.now().millisecondsSinceEpoch,
-            providerInfo: info,
-          ),
-          projectId: project.id,
-          sequence: sequence,
-          keepOriginal: true,
-        );
-        sequence++;
-      }
-      if (!mounted) return;
-      context.push(AppRoutes.pageReviewFor(project.id));
-    } finally {
-      if (mounted) setState(() => _importing = false);
-    }
+    await _importIntoNewDocument(
+      (useCase, projectId) => useCase.importImages(
+        [for (final f in files) f.path],
+        projectId: projectId,
+        startSequence: 0,
+      ),
+    );
   }
 
   Future<void> _importPdf() async {
@@ -154,41 +128,45 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
     final path = result?.files.single.path;
     if (path == null || !mounted) return;
+    await _importIntoNewDocument(
+      (useCase, projectId) =>
+          useCase.importPdf(path, projectId: projectId, startSequence: 0),
+    );
+  }
+
+  /// Creates a document, runs [import] into it and opens Review. On failure
+  /// or when nothing was imported, the new document is removed (no empty
+  /// project in the library) and the user is told instead of nothing
+  /// happening.
+  Future<void> _importIntoNewDocument(
+    Future<List<ScanPage>> Function(ImportPagesUseCase useCase, String id)
+    import,
+  ) async {
     setState(() => _importing = true);
+    final l10n = AppLocalizations.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    Project? project;
+    var imported = <ScanPage>[];
     try {
-      final project = await _createProject(ProjectType.document);
-      final useCase = locator<CapturePageUseCase>();
-      final paths = locator<AppPaths>();
-      const info = ProviderInfo(
-        providerName: 'pdf-import',
-        adapterVersion: '1.0.0',
-      );
-      var sequence = 0;
-      await for (final page in locator<PdfRasterizerProvider>().rasterize(
-        path,
-      )) {
-        final dest = paths.originalPathFor(const Uuid().v4(), ext: 'png');
-        await File(dest).writeAsBytes(page.pngBytes);
-        await useCase.processCapture(
-          capture: StillCapture(
-            originalImagePath: dest,
-            detectedQuad: null,
-            qualityScore: 0.8,
-            warnings: const {},
-            capturedAtMs: DateTime.now().millisecondsSinceEpoch,
-            providerInfo: info,
-          ),
-          projectId: project.id,
-          sequence: sequence,
-          keepOriginal: true,
-        );
-        sequence++;
-      }
-      if (!mounted) return;
-      context.push(AppRoutes.pageReviewFor(project.id));
+      project = await _createProject(ProjectType.document);
+      imported = await import(locator<ImportPagesUseCase>(), project.id);
+    } on Object {
+      imported = const [];
     } finally {
       if (mounted) setState(() => _importing = false);
     }
+    if (project == null) return;
+    if (imported.isEmpty) {
+      try {
+        await discardUnsavedCapture(project.id);
+      } on Object {
+        // Best effort: an empty project is harmless.
+      }
+      messenger.showSnackBar(SnackBar(content: Text(l10n.importFailed)));
+      return;
+    }
+    if (!mounted) return;
+    context.push(AppRoutes.pageReviewFor(project.id));
   }
 
   Future<void> _renameProject(Project project) async {
@@ -233,7 +211,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         data: AppTheme.homeShell(),
         child: Stack(
           children: [
-            const Positioned.fill(child: _HomeAmbientBackground()),
+            const Positioned.fill(
+              child: AppBackdrop(style: AppBackdropStyle.home),
+            ),
             Scaffold(
               backgroundColor: Colors.transparent,
               extendBody: true,
@@ -621,71 +601,6 @@ class _RoundHeaderButton extends StatelessWidget {
       ),
     );
   }
-}
-
-class _HomeAmbientBackground extends StatelessWidget {
-  const _HomeAmbientBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(gradient: AppTheme.homeGradient),
-      child: CustomPaint(painter: _HomeGlowPainter()),
-    );
-  }
-}
-
-class _HomeGlowPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final top = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              AppTheme.accent.withValues(alpha: 0.28),
-              AppTheme.accent.withValues(alpha: 0.0),
-            ],
-          ).createShader(
-            Rect.fromCircle(
-              center: Offset(size.width * 0.85, size.height * 0.08),
-              radius: size.width * 0.55,
-            ),
-          );
-    canvas.drawRect(Offset.zero & size, top);
-
-    final mid = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              const Color(0xFF1DBF5A).withValues(alpha: 0.22),
-              Colors.transparent,
-            ],
-          ).createShader(
-            Rect.fromCircle(
-              center: Offset(size.width * 0.1, size.height * 0.45),
-              radius: size.width * 0.7,
-            ),
-          );
-    canvas.drawRect(Offset.zero & size, mid);
-
-    final bottom = Paint()
-      ..shader =
-          RadialGradient(
-            colors: [
-              AppTheme.accent.withValues(alpha: 0.18),
-              Colors.transparent,
-            ],
-          ).createShader(
-            Rect.fromCircle(
-              center: Offset(size.width * 0.6, size.height * 0.92),
-              radius: size.width * 0.65,
-            ),
-          );
-    canvas.drawRect(Offset.zero & size, bottom);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _QuickStartRow extends StatelessWidget {

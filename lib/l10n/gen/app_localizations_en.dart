@@ -376,6 +376,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bookScanTitle => 'Book Scan';
 
   @override
+  String get bookScanSaving => 'Saving pages…';
+
+  @override
+  String get bookScanOpenScanner => 'Open scanner';
+
+  @override
   String get bookScanDone => 'Done';
 
   @override
@@ -564,6 +570,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reviewExportToEpub => 'Export to EPUB';
 
   @override
+  String get reviewExportWord => 'Export as Word';
+
+  @override
+  String get reviewExportWordHint =>
+      'An editable .docx with the scanned pages, for Microsoft Word or Google Docs.';
+
+  @override
+  String get reviewExportToWord => 'Export to Word';
+
+  @override
   String get reviewIncludePageMarkers => 'Page markers';
 
   @override
@@ -594,6 +610,20 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get delete => 'Delete';
+
+  @override
+  String deletePagesConfirmTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count pages?',
+      one: 'Delete this page?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get deletePagesConfirmBody => 'This can\'t be undone.';
 
   @override
   String get possibleDuplicate => 'Possible duplicate';
@@ -734,6 +764,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get spreadSplitAction => 'Re-split spread';
 
   @override
+  String get splitIntoTwoPagesAction => 'Split into two pages';
+
+  @override
   String get spreadSplitTitle => 'Adjust spread split';
 
   @override
@@ -833,6 +866,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get exportFailed => 'Export failed';
+
+  @override
+  String get applyingChanges => 'Applying…';
+
+  @override
+  String get savingChanges => 'Saving…';
+
+  @override
+  String get saveChangesFailed =>
+      'Couldn\'t save your changes. Please try again.';
+
+  @override
+  String get importFailed => 'Couldn\'t import any pages from that file.';
 
   @override
   String get share => 'Share';

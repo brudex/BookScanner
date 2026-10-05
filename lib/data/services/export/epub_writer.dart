@@ -44,7 +44,12 @@ class EpubWriter {
         final mediaType = ext == '.png' ? 'image/png' : 'image/jpeg';
         final fileName = 'page${i + 1}${ext == '.png' ? '.png' : '.jpg'}';
         images.add(
-          _EpubImage(index: i, fileName: fileName, mediaType: mediaType, bytes: bytes),
+          _EpubImage(
+            index: i,
+            fileName: fileName,
+            mediaType: mediaType,
+            bytes: bytes,
+          ),
         );
         archive.addFile(
           ArchiveFile('OEBPS/images/$fileName', bytes.length, bytes),

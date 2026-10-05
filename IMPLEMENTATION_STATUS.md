@@ -5,11 +5,72 @@ status, source files, tests, and verification evidence. Updated after every
 vertical slice. Nothing here is marked "done" unless it has been run and
 observed working, not just written.
 
-**Last updated:** 2026-10-02 (Continuous book scan UI). Book Capture is a
-live camera chrome (Book Scan title, shutter, thumb strip with
-processing/check badges, capture toast, Auto/Import, Done waits for
-background enhance → existing Review). No ready/setup screen or
-Continue popup for books. Documents/IDs unchanged.
+**Last updated:** 2026-10-03 (Book Scan uses the system document scanner).
+Book Capture now opens Google ML Kit Document Scanner (VisionKit on iOS)
+straight from Book Setup, the same scanner Document Scan uses, because its
+trained page detector is far more reliable than the in-app OpenCV preview.
+Pages are saved as returned (`nativeReady` passthrough, no second crop) and
+open Review; "Add pages" from Review appends and pops back; cancelling never
+deletes an existing book. Review adds "Split into two pages" for a book page
+that holds a whole spread. The in-app CameraX/AVFoundation book camera and
+`ModeAwareCaptureProvider` stay in the repo, unregistered. Domain tests for
+the split run green (`process_book_spread_use_case_test.dart`, 14/14).
+Capture widget tests and the book integration test are rewritten but **not
+run**: packages do not resolve on this machine's Dart 3.10.7 (`camera
+0.12.1` needs Dart 3.12). Not yet seen on a device.
+
+**Update, 2026-10-03 (book pages: Base mode + shadow removal).** Book Scan
+uses ML Kit Base mode (Full mode's Enhance washed pages out); Document/ID
+keep Full. Shadow removal (`normalizeIllumination` / `_flattenIllumination`)
+now erases ink with a 7x7 max filter at 300 px before a sigma-4 blur (was a
+sigma-24 blur of the page including its text, which faded dense writing and
+left hard shadow edges); tuned on a shadowed notebook page from the S200.
+New book pages are cleaned in the background, one at a time
+(`CleanScannedPagesUseCase`), skipping edited or deleted pages; failures
+keep the page as scanned. Not yet seen on device with a fresh scan.
+
+**Update, 2026-10-03 (editor OOM + main-thread audit).** Saving a filter on a
+pre-cap 7151 x 5327 page threw `Exhausted heap space` (114 MB buffer) and the
+error was swallowed (`on Exception` misses isolate OOM/RemoteError), so Save
+looked dead. Now every enhance/crop/revert works from a native, low-memory
+copy capped at 3508 px; editor save paths catch all errors and show
+"Couldn't save your changes". Live filter previews run one at a time
+(slider drags used to start overlapping full-res renders -> OOM -> ANR).
+Main-isolate audit: PDF/image/size-estimate/DOCX export decoded and
+re-encoded every page on the UI isolate (Android runs Dart on the main
+thread -> ANR); moved to `Isolate.run` (`page_image_encoding.dart`). Known
+remaining: old pages stored above the cap still cause repeated large decodes
+under memory pressure until downscaled.
+
+**Update, 2026-10-03 (imports + delete cleanup, on DOOGEE S200).** Verified on
+the device: Home Gallery and Import (PDF) now go through
+`ImportPagesUseCase` -- picked photos are copied out of the picker cache into
+app storage (they were kept in `cache/`, which Android may clear) and capped
+at 3508 px; PDF pages render at a per-page DPI capped to 3508 px (a large
+page previously threw a 633 MB allocation and left an empty project). Failed
+or empty imports show a message and remove the new project. Deleting a page
+removes its unshared files in the background (best effort, never throws;
+seen on device: all three files gone within 3 s). System Back on a new,
+empty Document/ID/Book capture removes the empty project. Document/ID skip
+the in-app camera-permission screen (the system scanner needs none).
+
+**Update, 2026-10-03 (Review ANR + menu audit, on DOOGEE S200).** ML Kit
+returned 36-65 MP pages (up to 7325 x 8941) on this phone; Review thumbnails
+decoded them at full size every rebuild (ANR). Fixed: scanner pages are
+stored with the long side capped at 3508 px (native `downscaleStill` on
+Android/iOS; iOS not yet compiled here), all page images decode at display
+size (`lib/ui/core/widgets/page_image.dart`), thumbnail generation moved off
+the UI isolate, native fallback errors now caught. Review menu tested on the
+device: Crop, Filter & adjust, Split, Re-split, Label, Rotate, Duplicate,
+Revert, Rescan (open + cancel), Delete all work. Fixed on the way: Fine
+rotation/Threshold were ignored on Android; OCR block taps did nothing;
+delete scrambled page order; duplicate went to the end; delete had no
+confirmation. "Recognize text" removed from Review (export runs OCR). Not yet
+verified on device: a fresh scan through the new downscaler.
+
+**Previous update, 2026-10-02 (Continuous book scan UI).** Book Capture was
+a live camera chrome (thumb strip, capture toast, Done → Review). Superseded
+by the 2026-10-03 update above.
 
 **Previous update, 2026-10-02 (Scan ID).** New Scan offers Scan ID.
 The existing scanner captures the front, then the back (one page each),
@@ -100,7 +161,7 @@ No physical iOS device available — see "Known blockers" at the end.
 | Item | Status | Evidence |
 |---|---|---|
 | Kotlin plugin registered via `MainActivity` (switched to `FlutterFragmentActivity` for `LifecycleOwner`) | ✅ | `android/.../MainActivity.kt`, `capture/CapturePlugin.kt` |
-| CameraX Preview bound to Flutter `Texture` (no vendor preview widget) | 🟡 (books: live native preview; documents: system scanner UI) | Production capture is `ModeAwareCaptureProvider`: books → `NativeCaptureProvider` (CameraX / AVFoundation live preview + stills); documents/IDs → `CunningDocumentScannerCaptureProvider` (ML Kit / VisionKit). Not ✅ until seen on a physical device after rebuild. |
+| CameraX Preview bound to Flutter `Texture` (no vendor preview widget) | 🟡 (not used in production capture) | Production capture is `CunningDocumentScannerCaptureProvider` (ML Kit / VisionKit) for documents, IDs **and books** (`service_locator.dart` `_selectCaptureProvider`). `NativeCaptureProvider` (CameraX / AVFoundation) and `ModeAwareCaptureProvider` are kept but unregistered. Known issue if re-enabled for books: preview aspect hard-coded 4:3 and analysis quads not rotated, so the preview shows as a sideways band and the outline cannot align. |
 | ImageAnalysis with `STRATEGY_KEEP_ONLY_LATEST`, every `ImageProxy` closed | ✅ | `CaptureAnalyzer.analyze` closes in a `finally` block |
 | Classical edge/blur/exposure/motion analysis (Kotlin) | ✅ | `FrameMath.kt` — Sobel edge energy projection profile, Laplacian-variance sharpness, luminance exposure, frame-diff motion |
 | Full-resolution still capture via `ImageCapture` | ✅ | `CameraXCaptureController.captureStill`; **verified on-device**: produces a real JPEG under app-private `filesDir/captures/` |
@@ -249,7 +310,7 @@ SPEC 9.3 describes as the target — see documented limitations below.
 | `ProcessBookSpreadUseCase` — `processSinglePage` saves as `processing`; `enhanceSavedPage` is crop+default filter for the background queue; `processCapture`/`resplit` remain for spread tooling | ✅ (domain tests) | `lib/domain/use_cases/process_book_spread_use_case.dart`; unit tests in `test/domain/process_book_spread_use_case_test.dart` (incl. processing → enhanceSavedPage). Capture UI wiring is 🟡 — see capture row. |
 | Undivided spread photo retention (needed for manual re-split) | ✅ | `ProcessBookSpreadUseCase.spreadOriginalPathFor` — deterministic, order-independent shared storage key derived from both sibling page ids; verified round-trip in its own test |
 | Finger/occlusion → `QualityWarning.fingerCovering` + `PageStatus.needsRescan` on high-confidence text loss, warning-only (no rescan) on margin-only occlusion | ✅ | Same use-case tests; never silently removes/inpaints pixels (SPEC 9.3) |
-| Capture flow wiring: book-type projects route through the single-page book pipeline with background enhance | 🟡 (unit-tested; not re-run on device this session) | `CaptureViewModel` always runs `ProcessBookSpreadUseCase.processSinglePage` for books (one still per shutter; no ML Kit batch). Page is `processing` until `enhanceSavedPage` finishes on a serial queue. Done → `AppRoutes.pageReviewFor`. Documents keep save-then-post-capture-crop. Tests: `capture_screen_test.dart`, `process_book_spread_use_case_test.dart`. |
+| Capture flow wiring: book projects use the system scanner batch path | 🟡 (tests written, not run here; not seen on device) | `CaptureViewModel`: books call `BatchDocumentCapture.scanDocuments(maxPages: 100)` and save through `CapturePageUseCase.saveShot` (passthrough for `nativeReady`). Our camera-permission rationale is skipped for books. `CaptureScreen` auto-launches the scanner once; new book → Review (`pushReplacement`), opened from Review → `pop`; cancel discards only a project that never had a page. Rescan uses the single-page scanner. Review: "Split into two pages" → `ProcessBookSpreadUseCase.splitSavedPage` then the Spread Split screen. Tests: `capture_screen_test.dart`, `process_book_spread_use_case_test.dart` (green), `integration_test/book_scan_session_test.dart`. |
 | Book onboarding (SPEC 5.2 step 2 + 6.10): optional title/author/language/starting page/scan mode/reading order, plus copyright acknowledgement before capture | 🟡 (unit/widget-tested; not seen on device this session) | `BookSetupScreen` / `BookSetupViewModel`; New Scan → Book goes to `/projects/:id/book-setup` instead of Capture. Continue is disabled until the copyright checkbox. Tests: `test/ui/book_setup_screen_test.dart`. |
 | `BookScanMode` persisted on `ProjectMetadata` (schema v2 `book_scan_mode`) | ✅ | Domain + SQLite migration; `test/domain/project_metadata_test.dart`, `test/data/project_repository_impl_test.dart` |
 | Mode-aware capture backend (SPEC 9.6): documents/IDs = system scanner; books = live camera | 🟡 (unit-tested; not seen on device this session) | Production `service_locator.dart` registers `ModeAwareCaptureProvider` (`CunningDocumentScannerCaptureProvider` for document/ID, `NativeCaptureProvider` for book). Unit tests: `mode_aware_capture_provider_test.dart`; book still-only + Done→Review: `capture_screen_test.dart`. |

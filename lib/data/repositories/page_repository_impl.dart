@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../../domain/models/capture_models.dart';
@@ -97,22 +99,55 @@ class PageRepositoryImpl implements PageRepository {
     final page = await getPage(pageId);
     if (page == null) return;
     await _db.delete('pages', where: 'id = ?', whereArgs: [pageId]);
+    // Renumber in reading order. Rebuilding page_order from an unordered
+    // query scrambled export order, and leaving a gap in `sequence` let a
+    // later append reuse an existing number.
+    final remaining = await getPages(page.projectId);
+    await reorderPages(page.projectId, [for (final r in remaining) r.id]);
+    // Not awaited: Delete returns as soon as the page is gone from the book.
+    unawaited(_deleteUnusedFiles(page));
+  }
+
+  /// Best-effort, background removal of a deleted page's image files. A file
+  /// another page still points at (a duplicate, or a page merged into another
+  /// document) is kept. Any failure is ignored: leaving a file behind only
+  /// costs storage, while an error here must never break the delete.
+  Future<void> _deleteUnusedFiles(ScanPage page) async {
+    try {
+      final processed = page.processedImagePath;
+      final candidates = <String>{
+        page.originalImagePath,
+        ?processed,
+        ?page.thumbnailPath,
+        // The live filter preview is private to this page id.
+        if (processed != null)
+          p.join(p.dirname(processed), '${page.id}_preview.jpg'),
+      };
+      for (final path in candidates) {
+        try {
+          if (await _isReferencedByAnyPage(path)) continue;
+          final file = File(path);
+          if (await file.exists()) await file.delete();
+        } on Object {
+          // Skip this file; try the rest.
+        }
+      }
+    } on Object {
+      // Never surface cleanup failures.
+    }
+  }
+
+  Future<bool> _isReferencedByAnyPage(String path) async {
     final rows = await _db.query(
       'pages',
-      where: 'project_id = ?',
-      whereArgs: [page.projectId],
+      columns: ['id'],
+      where:
+          'original_image_path = ? OR processed_image_path = ? '
+          'OR thumbnail_path = ?',
+      whereArgs: [path, path, path],
+      limit: 1,
     );
-    final remainingIds = rows.map((r) => r['id']! as String).toList();
-    await _db.update(
-      'projects',
-      {
-        'page_order': JsonCodecHelpers.encodeStringList(remainingIds),
-        'updated_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      where: 'id = ?',
-      whereArgs: [page.projectId],
-    );
-    _changes.add(page.projectId);
+    return rows.isNotEmpty;
   }
 
   @override
@@ -132,10 +167,20 @@ class PageRepositoryImpl implements PageRepository {
       thumbnailPath: page.thumbnailPath,
       cropPoints: page.cropPoints,
       rotationDegrees: page.rotationDegrees,
+      fineRotationDegrees: page.fineRotationDegrees,
       filter: page.filter,
+      brightness: page.brightness,
+      contrast: page.contrast,
+      sharpness: page.sharpness,
+      threshold: page.threshold,
       qualityScore: page.qualityScore,
     );
     await addPage(copy);
+    // Place the copy right after its original, not at the end of the book.
+    final order = <String>[
+      for (final p in pages) ...[p.id, if (p.id == page.id) newId],
+    ];
+    await reorderPages(page.projectId, order);
   }
 
   Future<void> _appendToProjectOrder(String projectId, String pageId) async {

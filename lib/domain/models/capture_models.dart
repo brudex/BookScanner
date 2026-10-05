@@ -25,6 +25,17 @@ class DetectionThresholds {
   static const double minConfidence = 0.45;
 }
 
+/// Bounds on stored page images. The system document scanner returns
+/// 30-65 MP pages on some phones (7325 x 8941 px seen on a DOOGEE S200);
+/// decoding one of those needs 150-260 MB, enough to stall Review and the
+/// editors. 3508 px is the long side of A4 at 300 dpi -- ample for reading
+/// and OCR of a book page.
+class StoredPageLimits {
+  StoredPageLimits._();
+
+  static const int maxLongSidePx = 3508;
+}
+
 /// Normalized result of one reduced-resolution live-analysis frame. Produced
 /// at high frequency by the native side; must never carry raw frame bytes
 /// across the platform channel (SPEC 9.1 / 9.2).

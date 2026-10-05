@@ -87,3 +87,4 @@ native/**/compile_commands.json
 
 # Flutter golden / integration failure dumps
 **/failures/
+_research

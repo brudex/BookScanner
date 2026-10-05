@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
-import 'package:image/image.dart' as img;
 
 import '../../../domain/models/export_job.dart';
 import '../../../domain/models/ocr_block.dart';
 import '../../../domain/models/provider_info.dart';
 import '../../../domain/providers/document_export_provider.dart';
+import 'page_image_encoding.dart';
 
 /// Hand-rolled, standards-compliant OOXML `.docx` writer (SPEC 6.7). No
 /// dependency is available on pub.dev that both (a) writes real OOXML and
@@ -31,16 +31,18 @@ class DocxWriter {
 
     if (options.pageMode == DocxPageMode.facsimile) {
       for (var i = 0; i < input.pages.length; i++) {
-        final bytes = await File(input.pages[i].imagePath).readAsBytes();
-        final decoded = img.decodeImage(bytes);
-        if (decoded == null) continue;
+        final encoded = await encodePageImage(
+          input.pages[i].imagePath,
+          jpegQuality: 80,
+        );
+        if (encoded == null) continue;
         mediaEntries.add(
           _MediaEntry(
             index: i,
             fileName: 'image${i + 1}.jpg',
-            bytes: img.encodeJpg(decoded, quality: 80),
-            widthPx: decoded.width,
-            heightPx: decoded.height,
+            bytes: encoded.bytes,
+            widthPx: encoded.width,
+            heightPx: encoded.height,
           ),
         );
         onProgress?.call((i + 1) / (input.pages.length * 2));
@@ -67,7 +69,9 @@ class DocxWriter {
       ),
     );
     if (footnotes.isNotEmpty) {
-      archive.addFile(_textEntry('word/footnotes.xml', _footnotesXml(footnotes)));
+      archive.addFile(
+        _textEntry('word/footnotes.xml', _footnotesXml(footnotes)),
+      );
     }
     for (final m in mediaEntries) {
       archive.addFile(

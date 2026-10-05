@@ -9,6 +9,7 @@ import '../../../../domain/repositories/page_path_allocator.dart';
 import '../../../../domain/repositories/page_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
 import '../../../../domain/use_cases/process_book_spread_use_case.dart';
+import '../../../core/widgets/page_image.dart';
 
 /// Backs the manual book-spread split correction screen (SPEC 5.2
 /// acceptance criterion: "the app creates two ordered pages and lets the
@@ -97,7 +98,7 @@ class SpreadSplitViewModel extends ChangeNotifier {
         _physicalLeftPage!.originalImagePath,
       )).width;
       _gutterX = (leftWidth / _imageSize!.width).clamp(0.05, 0.95);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _error = e;
     } finally {
       _loading = false;
@@ -105,17 +106,8 @@ class SpreadSplitViewModel extends ChangeNotifier {
     }
   }
 
-  Future<ui.Size> _decodeImageSize(String path) async {
-    final bytes = await File(path).readAsBytes();
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
-    final size = ui.Size(
-      frame.image.width.toDouble(),
-      frame.image.height.toDouble(),
-    );
-    frame.image.dispose();
-    return size;
-  }
+  /// Header-only: a full decode of a large scan here stalled the editor.
+  Future<ui.Size> _decodeImageSize(String path) => readImageSize(path);
 
   void dragGutter(double normalizedDeltaX) {
     _gutterX = (_gutterX + normalizedDeltaX).clamp(0.05, 0.95);
@@ -137,7 +129,7 @@ class SpreadSplitViewModel extends ChangeNotifier {
         gutterX: _gutterX,
       );
       return true;
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _error = e;
       return false;
     } finally {

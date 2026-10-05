@@ -147,7 +147,9 @@ class ExportOnServerUseCase {
       );
     }
 
-    _log('conversion finished state=${job.state} in ${watch.elapsed.inSeconds}s');
+    _log(
+      'conversion finished state=${job.state} in ${watch.elapsed.inSeconds}s',
+    );
     final artifact = job.artifacts.first;
     final ext = _extension(format, artifact.filename);
     final dest = _paths.exportPathFor(uploadId, ext);
@@ -161,7 +163,9 @@ class ExportOnServerUseCase {
     final actualSize = await downloaded.length();
     if (artifact.sizeBytes > 0 && actualSize != artifact.sizeBytes) {
       await downloaded.delete();
-      throw const ConversionException('The download was incomplete. Try again.');
+      throw const ConversionException(
+        'The download was incomplete. Try again.',
+      );
     }
     if (artifact.sha256.isNotEmpty) {
       final digest = await sha256.bind(downloaded.openRead()).first;
@@ -187,6 +191,7 @@ class ExportOnServerUseCase {
     ExportFormat.searchablePdf => 'pdf',
     ExportFormat.markdown => 'markdown_zip',
     ExportFormat.epub => 'epub',
+    ExportFormat.docx => 'docx',
     _ => 'pdf',
   };
 
@@ -204,12 +209,24 @@ class ExportOnServerUseCase {
         if (trimmedAuthor != null && trimmedAuthor.isNotEmpty)
           'author': trimmedAuthor,
       },
+      // Same metadata as EPUB; each scanned page starts a new Word page.
+      ExportFormat.docx => {
+        'ocr_mode': 'auto',
+        'title': title,
+        'language': 'en',
+        'page_breaks': true,
+        if (trimmedAuthor != null && trimmedAuthor.isNotEmpty)
+          'author': trimmedAuthor,
+      },
       ExportFormat.searchablePdf => {
         'ocr_mode': 'auto',
         'pdf_mode': 'searchable',
         'languages': ['en'],
       },
-      _ => {'ocr_mode': 'auto', 'languages': ['en']},
+      _ => {
+        'ocr_mode': 'auto',
+        'languages': ['en'],
+      },
     };
   }
 
@@ -221,6 +238,7 @@ class ExportOnServerUseCase {
     return switch (format) {
       ExportFormat.markdown => 'zip',
       ExportFormat.epub => 'epub',
+      ExportFormat.docx => 'docx',
       _ => 'pdf',
     };
   }

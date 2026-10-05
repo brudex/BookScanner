@@ -19,7 +19,23 @@ class ExportLaunch {
   final EpubExportOptions? epubOptions;
 }
 
-enum _SheetFormat { pdf, markdown, epub }
+/// Shows the Export / Convert sheet and returns the chosen format and
+/// options, or null when it was dismissed. Used by Review and by the Export
+/// screen when it is opened without a choice.
+Future<ExportLaunch?> showExportConvertSheet(BuildContext context) {
+  return showModalBottomSheet<ExportLaunch>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: const Color(0xFF10241C),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    ),
+    builder: (sheetContext) =>
+        Theme(data: AppTheme.homeShell(), child: const ExportConvertSheet()),
+  );
+}
+
+enum _SheetFormat { pdf, markdown, epub, docx }
 
 enum _PdfQuality { high, medium, low }
 
@@ -42,7 +58,9 @@ class ExportConvertSheet extends StatefulWidget {
 
 class _ExportConvertSheetState extends State<ExportConvertSheet> {
   _SheetFormat _format = _SheetFormat.pdf;
-  bool _searchable = true;
+  // Off by default: a plain image PDF is made on the phone, fast and
+  // offline. Turning it on sends the pages to the server for OCR.
+  bool _searchable = false;
   PdfPageSize _pageSize = PdfPageSize.a4;
   _PdfQuality _quality = _PdfQuality.high;
   bool _pageMarkers = true;
@@ -51,7 +69,9 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
   void _confirm() {
     final launch = switch (_format) {
       _SheetFormat.pdf => ExportLaunch(
-        format: _searchable ? ExportFormat.searchablePdf : ExportFormat.imagePdf,
+        format: _searchable
+            ? ExportFormat.searchablePdf
+            : ExportFormat.imagePdf,
         pdfOptions: PdfExportOptions(
           pageSize: _pageSize,
           imageQuality: _quality.quality,
@@ -68,6 +88,7 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
         format: ExportFormat.epub,
         epubOptions: EpubExportOptions(includePageImages: _includeImages),
       ),
+      _SheetFormat.docx => const ExportLaunch(format: ExportFormat.docx),
     };
     Navigator.of(context).pop(launch);
   }
@@ -80,6 +101,7 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
       _SheetFormat.pdf => l10n.reviewExportToPdf,
       _SheetFormat.markdown => l10n.reviewExportToMarkdown,
       _SheetFormat.epub => l10n.reviewExportToEpub,
+      _SheetFormat.docx => l10n.reviewExportToWord,
     };
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 10, 16, 16 + bottom),
@@ -147,6 +169,16 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
               subtitle: l10n.reviewExportEpubHint,
               onTap: () => setState(() => _format = _SheetFormat.epub),
             ),
+            const SizedBox(height: 10),
+            _FormatCard(
+              key: const ValueKey('reviewExportWord'),
+              selected: _format == _SheetFormat.docx,
+              color: const Color(0xFF4F8CFF),
+              icon: Icons.article_outlined,
+              title: l10n.reviewExportWord,
+              subtitle: l10n.reviewExportWordHint,
+              onTap: () => setState(() => _format = _SheetFormat.docx),
+            ),
             const SizedBox(height: 18),
             if (_format == _SheetFormat.pdf)
               _OptionsPanel(
@@ -211,7 +243,8 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
                     icon: Icons.image_outlined,
                     label: l10n.reviewIncludePageImages,
                     value: _includeImages,
-                    onChanged: (value) => setState(() => _includeImages = value),
+                    onChanged: (value) =>
+                        setState(() => _includeImages = value),
                   ),
                 ],
               ),
@@ -339,11 +372,7 @@ class _FormatCard extends StatelessWidget {
 }
 
 class _OptionsPanel extends StatelessWidget {
-  const _OptionsPanel({
-    super.key,
-    required this.title,
-    required this.children,
-  });
+  const _OptionsPanel({super.key, required this.title, required this.children});
 
   final String title;
   final List<Widget> children;

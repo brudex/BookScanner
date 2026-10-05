@@ -15,6 +15,7 @@ import 'package:bookscanner/l10n/gen/app_localizations.dart';
 import 'package:bookscanner/ui/features/page_review/view_models/page_review_view_model.dart';
 import 'package:bookscanner/ui/features/page_review/views/page_review_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -272,6 +273,113 @@ void main() {
       expect(find.byKey(const ValueKey('pageReviewList')), findsNothing);
       expect(find.byKey(const ValueKey('pageReviewGrid')), findsOneWidget);
       expect(find.byKey(const ValueKey('page-p1')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'page menu has no Recognize text, and Delete asks before removing',
+    (tester) async {
+      final pageRepository = _FakePageRepository();
+      await pageRepository.addPage(
+        const ScanPage(
+          id: 'p1',
+          projectId: 'proj1',
+          sequence: 0,
+          originalImagePath: '/tmp/p1.jpg',
+          status: PageStatus.ready,
+        ),
+      );
+      final viewModel = PageReviewViewModel(
+        projectId: 'proj1',
+        pageRepository: pageRepository,
+        detectAnomaliesUseCase: DetectPageAnomaliesUseCase(
+          pageRepository: pageRepository,
+          ocrRepository: _FakeOcrRepository(),
+        ),
+        capturePageUseCase: CapturePageUseCase(
+          pageRepository: pageRepository,
+          enhancementProvider: _FakeImageEnhancementProvider(),
+          detectionProvider: _FakePageDetectionProvider(),
+          fileStorage: _FakePagePathAllocator(),
+        ),
+      );
+      await tester.pumpWidget(
+        _wrap(PageReviewScreen(projectId: 'proj1', viewModel: viewModel)),
+      );
+      pageRepository.emitPages('proj1');
+      await tester.pump();
+
+      Future<void> openMenuAndTapDelete() async {
+        await tester.tap(find.byKey(const ValueKey('pageMenu-p1')));
+        await tester.pumpAndSettle();
+        expect(find.text('Recognize text'), findsNothing);
+        await tester.tap(find.text('Delete'));
+        await tester.pumpAndSettle();
+        expect(find.text('Delete this page?'), findsOneWidget);
+      }
+
+      await openMenuAndTapDelete();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(await pageRepository.getPage('p1'), isNotNull);
+
+      await openMenuAndTapDelete();
+      await tester.tap(find.byKey(const ValueKey('confirmDeletePagesButton')));
+      await tester.pumpAndSettle();
+      expect(await pageRepository.getPage('p1'), isNull);
+    },
+  );
+
+  testWidgets(
+    'a low-quality warning shows its full text and can be dismissed',
+    (tester) async {
+      final pageRepository = _FakePageRepository();
+      await pageRepository.addPage(
+        const ScanPage(
+          id: 'p1',
+          projectId: 'proj1',
+          sequence: 0,
+          originalImagePath: '/tmp/p1.jpg',
+          status: PageStatus.needsRescan,
+        ),
+      );
+      final viewModel = PageReviewViewModel(
+        projectId: 'proj1',
+        pageRepository: pageRepository,
+        detectAnomaliesUseCase: DetectPageAnomaliesUseCase(
+          pageRepository: pageRepository,
+          ocrRepository: _FakeOcrRepository(),
+        ),
+        capturePageUseCase: CapturePageUseCase(
+          pageRepository: pageRepository,
+          enhancementProvider: _FakeImageEnhancementProvider(),
+          detectionProvider: _FakePageDetectionProvider(),
+          fileStorage: _FakePagePathAllocator(),
+        ),
+      );
+      await tester.pumpWidget(
+        _wrap(PageReviewScreen(projectId: 'proj1', viewModel: viewModel)),
+      );
+      pageRepository.emitPages('proj1');
+      await tester.pump();
+
+      final pill = find.byKey(const ValueKey('dismissLowQuality-p1'));
+      expect(pill, findsOneWidget);
+      final label = find.descendant(
+        of: pill,
+        matching: find.text('Low quality — consider rescanning'),
+      );
+      expect(label, findsOneWidget);
+      // Not cut off: the text fits within its two allowed lines.
+      final paragraph = tester.renderObject<RenderParagraph>(label);
+      expect(paragraph.didExceedMaxLines, isFalse);
+
+      await tester.tap(
+        find.descendant(of: pill, matching: find.byType(IconButton)),
+      );
+      await tester.pump();
+      final updated = await pageRepository.getPage('p1');
+      expect(updated!.dismissedWarnings, contains('lowQuality'));
     },
   );
 }

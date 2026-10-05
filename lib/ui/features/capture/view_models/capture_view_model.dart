@@ -14,7 +14,6 @@ import '../../../../domain/repositories/page_repository.dart';
 import '../../../../domain/repositories/project_repository.dart';
 import '../../../../domain/repositories/settings_repository.dart';
 import '../../../../domain/use_cases/capture_page_use_case.dart';
-import '../../../../domain/use_cases/process_book_spread_use_case.dart';
 
 enum CapturePermissionState { unknown, granted, denied, permanentlyDenied }
 
@@ -23,7 +22,6 @@ class CaptureViewModel extends ChangeNotifier {
     required this.projectId,
     required CaptureProvider captureProvider,
     required CapturePageUseCase capturePageUseCase,
-    required ProcessBookSpreadUseCase processBookSpreadUseCase,
     required ProjectRepository projectRepository,
     required PageRepository pageRepository,
     required SettingsRepository settingsRepository,
@@ -31,9 +29,12 @@ class CaptureViewModel extends ChangeNotifier {
     this.preferredCaptureMode,
     this.resultPreviewHold = const Duration(milliseconds: 900),
     this.onNeedsCropCorrection,
-  }) : _captureProvider = captureProvider,
+    Future<String> Function(String sourcePath)? storeImportedImage,
+    void Function(List<String> pageIds)? onBookPagesSaved,
+  }) : _storeImportedImage = storeImportedImage,
+       _onBookPagesSaved = onBookPagesSaved,
+       _captureProvider = captureProvider,
        _capturePageUseCase = capturePageUseCase,
-       _processBookSpreadUseCase = processBookSpreadUseCase,
        _projectRepository = projectRepository,
        _pageRepository = pageRepository,
        _settingsRepository = settingsRepository;
@@ -75,30 +76,67 @@ class CaptureViewModel extends ChangeNotifier {
   final void Function(String pageId)? onNeedsCropCorrection;
   final CaptureProvider _captureProvider;
   final CapturePageUseCase _capturePageUseCase;
-  final ProcessBookSpreadUseCase _processBookSpreadUseCase;
+
+  /// Copies a picked gallery image into app storage and returns its path.
+  /// Picker files live in the cache, which Android may clear; null keeps
+  /// the given path (tests).
+  final Future<String> Function(String sourcePath)? _storeImportedImage;
+
+  /// Hands newly saved book pages to background shadow removal.
+  final void Function(List<String> pageIds)? _onBookPagesSaved;
   final ProjectRepository _projectRepository;
   final PageRepository _pageRepository;
   final SettingsRepository _settingsRepository;
 
-  /// Book pages waiting for background crop/filter. Processed one at a time
-  /// so isolate work does not pile up; the shutter is not blocked on this.
-  final List<String> _bookEnhanceQueue = [];
-  bool _bookEnhanceRunning = false;
+  /// Pages the project already had when this screen opened. Zero means a
+  /// brand-new book; otherwise the screen was opened from Review.
+  int _initialPageCount = 0;
+  int get initialPageCount => _initialPageCount;
 
-  StreamSubscription<List<ScanPage>>? _pagesSubscription;
-  List<ScanPage> _sessionPages = const [];
+  bool _pagesLoaded = false;
 
-  /// Pages in this project, newest last — drives the book thumbnail strip.
-  List<ScanPage> get sessionPages => _sessionPages;
+  /// True once [initialPageCount] reflects the stored project. Until then
+  /// nothing may treat the project as new/empty and discard it.
+  bool get pagesLoaded => _pagesLoaded;
 
-  /// True while at least one book page is still enhancing.
-  bool get bookEnhancePending =>
-      _bookEnhanceQueue.isNotEmpty || _bookEnhanceRunning;
+  /// True for a project created for this capture that has no pages yet
+  /// from before this screen opened. Only such a project is discarded on
+  /// leave.
+  bool get isNewProject => _pagesLoaded && _initialPageCount == 0;
 
-  /// Page number (1-based) for the transient “captured · Processing” toast.
-  int? _captureToastPageNumber;
-  int? get captureToastPageNumber => _captureToastPageNumber;
-  Timer? _captureToastTimer;
+  /// Pages saved by this screen instance only. Back/cancel discards the
+  /// project only when this and [initialPageCount] are both zero — never an
+  /// existing book the user opened "Add pages" on.
+  int _sessionAddedPages = 0;
+  int get sessionAddedPages => _sessionAddedPages;
+
+  bool _bookScanFinished = false;
+
+  /// True once the system scanner returned and its pages were saved.
+  bool get bookScanFinished => _bookScanFinished;
+
+  bool _bookScanCancelled = false;
+
+  /// True when the user closed the system scanner without keeping a page.
+  bool get bookScanCancelled => _bookScanCancelled;
+
+  bool get isBook => _projectType == ProjectType.book;
+
+  bool _savingPages = false;
+
+  /// True after the system scanner returned, while its pages are written.
+  bool get savingPages => _savingPages;
+
+  /// Clears a scanner error and opens the system scanner again (book mode).
+  /// If the session itself failed to open, it is reopened first.
+  Future<List<ScanPage>> retryScan() async {
+    _error = null;
+    _bookScanCancelled = false;
+    _notify();
+    if (!_sessionOpen) await _openSession();
+    if (_error != null) return const [];
+    return captureManually();
+  }
 
   CapturePermissionState _permissionState = CapturePermissionState.unknown;
   CapturePermissionState get permissionState => _permissionState;
@@ -261,17 +299,21 @@ class CaptureViewModel extends ChangeNotifier {
     final project = await _projectRepository.getProject(projectId);
     _projectType = project?.type;
     final pages = await _pageRepository.getPages(projectId);
-    _syncSessionPages(pages);
     _pageCount = pages.length;
+    _initialPageCount = pages.length;
+    _pagesLoaded = true;
     _captureSettings =
         (await _settingsRepository.getSettings()).captureSettings;
     _autoCaptureEnabled = _captureSettings.autoCaptureEnabled;
 
-    if (_projectType == ProjectType.book) {
-      await _pagesSubscription?.cancel();
-      _pagesSubscription = _pageRepository.watchPages(projectId).listen(
-        _syncSessionPages,
-      );
+    // The system document scanner (ML Kit / VisionKit) owns the camera:
+    // ML Kit needs no app CAMERA permission and VisionKit asks the user
+    // itself, so our rationale screen would only add a step.
+    if (isBook || _captureProvider is BatchDocumentCapture) {
+      _permissionState = CapturePermissionState.granted;
+      _notify();
+      await _openSession();
+      return;
     }
 
     final status = await Permission.camera.status;
@@ -281,17 +323,6 @@ class CaptureViewModel extends ChangeNotifier {
     if (_permissionState == CapturePermissionState.granted) {
       await _openSession();
     }
-  }
-
-  void _syncSessionPages(List<ScanPage> pages) {
-    final sorted = [...pages]..sort((a, b) => a.sequence.compareTo(b.sequence));
-    _sessionPages = sorted;
-    _pageCount = sorted.length;
-    if (sorted.isNotEmpty) {
-      final last = sorted.last;
-      _lastPagePreviewPath = last.thumbnailPath ?? last.processedImagePath;
-    }
-    _notify();
   }
 
   Future<void> requestPermission() async {
@@ -411,12 +442,12 @@ class CaptureViewModel extends ChangeNotifier {
 
   void toggleAutoCapture() => setAutoCaptureEnabled(!_autoCaptureEnabled);
 
-  /// Returns the page produced by this capture.
+  /// Returns the pages produced by this capture.
   ///
-  /// A document photo is cropped and filtered. A book photo is one full
-  /// page, stored as shot, so the next page can be taken immediately.
-  /// Apps such as Adobe Scan and vFlat work this way: facing-page splits
-  /// are a separate step, never a silent cut down the middle.
+  /// Documents and books both come back from the system document scanner
+  /// already cropped and flattened (`nativeReady`), so they are stored as
+  /// returned. A two-page book spread is split later in Review, never by a
+  /// silent cut down the middle here.
   ///
   /// Live quality warnings stay on the banner and are stored on the page;
   /// they do not swallow a shutter tap. SPEC 9.2 requires manual capture on
@@ -434,15 +465,18 @@ class CaptureViewModel extends ChangeNotifier {
     _notify();
     try {
       final stills = await _captureStills();
-      if (stills.isEmpty) return const [];
+      if (stills.isEmpty) {
+        if (isBook) _bookScanCancelled = true;
+        return const [];
+      }
       if (_captureSettings.hapticConfirmation) HapticFeedback.mediumImpact();
       if (_captureSettings.audioConfirmation) {
         SystemSound.play(SystemSoundType.click);
       }
+      _savingPages = true;
       final still = stills.first;
-      // Books stay on the live camera — no frozen/result preview that would
-      // interrupt the next page. Documents keep the brief freeze cue.
-      if (_projectType != ProjectType.book) {
+      // Books show only a saving spinner; documents keep the freeze cue.
+      if (!isBook) {
         _frozenPreviewPath = still.originalImagePath;
         _notify();
       }
@@ -468,21 +502,20 @@ class CaptureViewModel extends ChangeNotifier {
         );
       }
       _pageCount += pages.length;
+      _sessionAddedPages += pages.length;
       final first = pages.first;
       _lastPagePreviewPath = first.originalImagePath;
-      if (_projectType == ProjectType.book) {
-        _mergeSessionPages(pages);
-        _showCaptureToast(_pageCount);
-        for (final page in pages) {
-          _enqueueBookEnhance(page.id);
-        }
+      if (isBook) {
+        _bookScanFinished = true;
+        _onBookPagesSaved?.call([for (final page in pages) page.id]);
       }
       _noteIdScanProgress();
-      // Processing (crop, document filter) for books runs in the
-      // background queue. Documents wait until post-capture edit / Review.
       return pages;
     } on ProviderException catch (e) {
-      if (e.category == ProviderErrorCategory.cancelled) return const [];
+      if (e.category == ProviderErrorCategory.cancelled) {
+        if (isBook) _bookScanCancelled = true;
+        return const [];
+      }
       _error = e;
       return const [];
     } catch (e) {
@@ -490,6 +523,7 @@ class CaptureViewModel extends ChangeNotifier {
       return const [];
     } finally {
       _capturing = false;
+      _savingPages = false;
       _captureFromAuto = false;
       _frozenPreviewPath = null;
       _resultPreviewPath = null;
@@ -499,24 +533,24 @@ class CaptureViewModel extends ChangeNotifier {
 
   Future<List<StillCapture>> _captureStills() async {
     final provider = _captureProvider;
-    // Books use the live camera: one still per shutter, never the multi-page
-    // document-scanner UI (that UI stops on Enhance/Filters/Crop).
-    if (_projectType == ProjectType.book) {
-      return [await provider.captureStill()];
-    }
     if (replacePageId == null && provider is BatchDocumentCapture) {
       final batch = provider as BatchDocumentCapture;
       // An ID is two separate scans (front, then back), each one page.
-      // Documents keep the multi-page native scanner.
-      return batch.scanDocuments(maxPages: isIdScan ? 1 : 20);
+      // Documents and books use the multi-page system scanner; books allow
+      // a longer session, and "Add pages" in Review continues past it.
+      final maxPages = isIdScan ? 1 : (isBook ? _bookMaxPagesPerScan : 20);
+      return batch.scanDocuments(maxPages: maxPages);
     }
     return [await provider.captureStill()];
   }
 
-  Future<List<ScanPage>> importStill(String imagePath) {
+  Future<List<ScanPage>> importStill(String imagePath) async {
+    if (_capturing || !_sessionOpen) return const [];
+    final store = _storeImportedImage;
+    final storedPath = store == null ? imagePath : await store(imagePath);
     return _persistImported(
       StillCapture(
-        originalImagePath: imagePath,
+        originalImagePath: storedPath,
         detectedQuad: null,
         qualityScore: 0.8,
         warnings: const {},
@@ -536,15 +570,9 @@ class CaptureViewModel extends ChangeNotifier {
     try {
       final pages = await _persistCapturedStill(still, sequence: _pageCount);
       _pageCount += pages.length;
+      _sessionAddedPages += pages.length;
       if (pages.isNotEmpty) {
         _lastPagePreviewPath = pages.last.originalImagePath;
-      }
-      if (_projectType == ProjectType.book) {
-        _mergeSessionPages(pages);
-        _showCaptureToast(_pageCount);
-        for (final page in pages) {
-          _enqueueBookEnhance(page.id);
-        }
       }
       _noteIdScanProgress();
       return pages;
@@ -554,75 +582,15 @@ class CaptureViewModel extends ChangeNotifier {
     }
   }
 
-  void _mergeSessionPages(List<ScanPage> added) {
-    final byId = {for (final p in _sessionPages) p.id: p};
-    for (final page in added) {
-      byId[page.id] = page;
-    }
-    _syncSessionPages(byId.values.toList());
-  }
-
-  void _showCaptureToast(int pageNumber) {
-    _captureToastTimer?.cancel();
-    _captureToastPageNumber = pageNumber;
-    _captureToastTimer = Timer(const Duration(milliseconds: 1600), () {
-      _captureToastPageNumber = null;
-      _notify();
-    });
-  }
-
-  /// Blocks until the book enhance queue is empty (Done → Review).
-  Future<void> waitForBookEnhancement() async {
-    while (bookEnhancePending && !_disposed) {
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-    }
-  }
-
-  void _enqueueBookEnhance(String pageId) {
-    _bookEnhanceQueue.add(pageId);
-    unawaited(_drainBookEnhanceQueue());
-  }
-
-  Future<void> _drainBookEnhanceQueue() async {
-    if (_bookEnhanceRunning) return;
-    _bookEnhanceRunning = true;
-    _notify();
-    try {
-      // Keep draining after the capture screen disposes: Done opens Review
-      // while pages may still be enhancing, and Review watches page rows.
-      while (_bookEnhanceQueue.isNotEmpty) {
-        final pageId = _bookEnhanceQueue.removeAt(0);
-        final page = await _pageRepository.getPage(pageId);
-        if (page == null) continue;
-        try {
-          final updated = await _processBookSpreadUseCase.enhanceSavedPage(
-            page,
-          );
-          _mergeSessionPages([updated]);
-        } catch (_) {
-          // Mark error on the thumb; keep scanning uninterrupted.
-          final failed = page.copyWith(status: PageStatus.error);
-          await _pageRepository.updatePage(failed);
-          _mergeSessionPages([failed]);
-        }
-      }
-    } finally {
-      _bookEnhanceRunning = false;
-      _notify();
-    }
-  }
+  /// Pages per system-scanner session for books. ML Kit holds every page in
+  /// memory until Save, so keep one session bounded; Review's "Add pages"
+  /// starts another and appends after the existing pages.
+  static const _bookMaxPagesPerScan = 100;
 
   Future<List<ScanPage>> _persistCapturedStill(
     StillCapture still, {
     required int sequence,
   }) {
-    if (_projectType == ProjectType.book) {
-      return _processBookSpreadUseCase.processSinglePage(
-        capture: still,
-        projectId: projectId,
-        sequence: sequence,
-      );
-    }
     return _capturePageUseCase
         .saveShot(
           capture: still,
@@ -693,8 +661,6 @@ class CaptureViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _captureToastTimer?.cancel();
-    unawaited(_pagesSubscription?.cancel());
     unawaited(closeSession());
     super.dispose();
   }

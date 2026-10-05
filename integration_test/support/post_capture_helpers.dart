@@ -16,3 +16,24 @@ Future<void> advancePostCapturePage(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('postCaptureSaveButton')));
   await tester.pumpAndSettle();
 }
+
+/// Picks [formatCardKey] on Review's Export / Convert sheet and confirms.
+/// [searchablePdf] turns the sheet's OCR switch on (it starts off, which
+/// gives an image-only PDF).
+Future<void> exportFromReviewSheet(
+  WidgetTester tester,
+  String formatCardKey, {
+  bool searchablePdf = false,
+}) async {
+  await tester.tap(find.byKey(const ValueKey('reviewExportButton')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(ValueKey(formatCardKey)));
+  await tester.pumpAndSettle();
+  if (searchablePdf) {
+    await tester.tap(find.byKey(const ValueKey('reviewExportOcrSwitch')));
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(find.byKey(const ValueKey('reviewExportConfirm')));
+  await tester.tap(find.byKey(const ValueKey('reviewExportConfirm')));
+  await tester.pumpAndSettle();
+}

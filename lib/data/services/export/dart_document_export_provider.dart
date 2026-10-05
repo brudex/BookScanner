@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
-import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'page_image_encoding.dart';
 import '../../../domain/models/export_job.dart';
 import '../../../domain/models/provider_info.dart';
 import '../../../domain/providers/document_export_provider.dart';
@@ -43,19 +43,14 @@ class DartDocumentExportProvider implements DocumentExportProvider {
 
     for (var i = 0; i < input.pages.length; i++) {
       final page = input.pages[i];
-      final bytes = await File(page.imagePath).readAsBytes();
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) continue;
-      var oriented = img.bakeOrientation(decoded);
-      if (page.rotationDegrees != 0) {
-        oriented = img.copyRotate(oriented, angle: page.rotationDegrees);
-      }
-      oriented = _downscaleIfNeeded(oriented, options.maxDimensionPx);
-      final jpg = img.encodeJpg(
-        oriented,
-        quality: (options.imageQuality * 100).round().clamp(10, 100),
+      final oriented = await encodePageImage(
+        page.imagePath,
+        rotationDegrees: page.rotationDegrees,
+        maxDimensionPx: options.maxDimensionPx,
+        jpegQuality: (options.imageQuality * 100).round().clamp(10, 100),
       );
-      final memImage = pw.MemoryImage(jpg);
+      if (oriented == null) continue;
+      final memImage = pw.MemoryImage(oriented.bytes);
 
       final pageFormat = _pdfPageFormat(
         options,
@@ -105,17 +100,6 @@ class DartDocumentExportProvider implements DocumentExportProvider {
     return ExportOutput(outputPath: input.outputPathHint, providerInfo: info);
   }
 
-  img.Image _downscaleIfNeeded(img.Image source, int? maxDimensionPx) {
-    if (maxDimensionPx == null) return source;
-    final longestEdge = source.width > source.height
-        ? source.width
-        : source.height;
-    if (longestEdge <= maxDimensionPx) return source;
-    return source.width >= source.height
-        ? img.copyResize(source, width: maxDimensionPx)
-        : img.copyResize(source, height: maxDimensionPx);
-  }
-
   @override
   Future<int> estimatePdfSizeBytes(
     ExportDocumentInput input,
@@ -123,20 +107,14 @@ class DartDocumentExportProvider implements DocumentExportProvider {
   ) async {
     var total = 0;
     for (final page in input.pages) {
-      final bytes = await File(page.imagePath).readAsBytes();
-      final decoded = img.decodeImage(bytes);
-      if (decoded == null) continue;
-      var oriented = img.bakeOrientation(decoded);
-      if (page.rotationDegrees != 0) {
-        oriented = img.copyRotate(oriented, angle: page.rotationDegrees);
-      }
-      oriented = _downscaleIfNeeded(oriented, options.maxDimensionPx);
-      total += img
-          .encodeJpg(
-            oriented,
-            quality: (options.imageQuality * 100).round().clamp(10, 100),
-          )
-          .length;
+      final encoded = await encodePageImage(
+        page.imagePath,
+        rotationDegrees: page.rotationDegrees,
+        maxDimensionPx: options.maxDimensionPx,
+        jpegQuality: (options.imageQuality * 100).round().clamp(10, 100),
+      );
+      if (encoded == null) continue;
+      total += encoded.bytes.length;
     }
     // A rough constant overhead for PDF structure/text layer per page,
     // rather than claiming byte-exact precision this estimate can't have.
@@ -157,27 +135,22 @@ class DartDocumentExportProvider implements DocumentExportProvider {
     for (var i = 0; i < input.pages.length; i++) {
       final page = input.pages[i];
       final destPath = p.join(outDir.path, 'page_${i + 1}.$extension');
-      if (page.rotationDegrees == 0 && options.format == ImageExportFormat.jpg) {
+      if (page.rotationDegrees == 0 &&
+          options.format == ImageExportFormat.jpg) {
         // Already a JPEG on disk with no rotation pending: copy the bytes
         // straight through instead of paying for a decode/re-encode round
         // trip (same zero-recode shortcut `MarkdownWriter` uses for its
         // `assets/` folder).
         await File(page.imagePath).copy(destPath);
       } else {
-        final bytes = await File(page.imagePath).readAsBytes();
-        final decoded = img.decodeImage(bytes);
-        if (decoded == null) continue;
-        var oriented = img.bakeOrientation(decoded);
-        if (page.rotationDegrees != 0) {
-          oriented = img.copyRotate(oriented, angle: page.rotationDegrees);
-        }
-        final encoded = options.format == ImageExportFormat.png
-            ? img.encodePng(oriented)
-            : img.encodeJpg(
-                oriented,
-                quality: (options.imageQuality * 100).round().clamp(10, 100),
-              );
-        await File(destPath).writeAsBytes(encoded);
+        final encoded = await encodePageImage(
+          page.imagePath,
+          rotationDegrees: page.rotationDegrees,
+          jpegQuality: (options.imageQuality * 100).round().clamp(10, 100),
+          png: options.format == ImageExportFormat.png,
+        );
+        if (encoded == null) continue;
+        await File(destPath).writeAsBytes(encoded.bytes);
       }
       assetPaths.add(destPath);
       onProgress?.call((i + 1) / input.pages.length);

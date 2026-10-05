@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 
 import '../../../domain/models/geometry.dart';
@@ -149,6 +151,32 @@ class VisionPlatformChannel {
         modelVersion: map['opencvVersion'] as String?,
       ),
     );
+  }
+
+  /// Writes [sourcePath] to [outputPath] with its long side bounded to
+  /// [maxLongSide] px (EXIF orientation applied), decoding natively at the
+  /// target size so a 65 MP scan never has to fit in memory whole. Returns
+  /// true when the image was re-encoded. Falls back to a plain copy where
+  /// the native method is unavailable (tests, older builds).
+  Future<bool> downscaleStill({
+    required String sourcePath,
+    required String outputPath,
+    required int maxLongSide,
+  }) async {
+    try {
+      final map = await _channel.invokeMethod<Map<Object?, Object?>>(
+        VisionChannelContract.methodDownscaleStill,
+        {
+          'sourcePath': sourcePath,
+          'outputPath': outputPath,
+          'maxLongSide': maxLongSide,
+        },
+      );
+      return map?['downscaled'] as bool? ?? false;
+    } on MissingPluginException {
+      await File(sourcePath).copy(outputPath);
+      return false;
+    }
   }
 
   Future<double> scoreStill(String path) async {

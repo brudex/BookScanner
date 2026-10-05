@@ -10,6 +10,7 @@ import '../../../../domain/models/scan_page.dart';
 import '../../../../domain/providers/page_detection_provider.dart';
 import '../../../../domain/repositories/page_repository.dart';
 import '../../../../domain/use_cases/capture_page_use_case.dart';
+import '../../../core/widgets/page_image.dart';
 
 /// Draggable crop controls matching Tap Scanner's `SimpleCropImageView`:
 /// 4 corners + 4 edge midpoints. Edge handles still edit the same stored
@@ -77,7 +78,7 @@ class CropCorrectionViewModel extends ChangeNotifier {
       _page = page;
       _quad = page.cropPoints ?? Quad.fullFrame;
       _imageSize = await _decodeImageSize(page.originalImagePath);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _error = e;
     } finally {
       _loading = false;
@@ -85,17 +86,8 @@ class CropCorrectionViewModel extends ChangeNotifier {
     }
   }
 
-  Future<ui.Size> _decodeImageSize(String path) async {
-    final bytes = await File(path).readAsBytes();
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
-    final size = ui.Size(
-      frame.image.width.toDouble(),
-      frame.image.height.toDouble(),
-    );
-    frame.image.dispose();
-    return size;
-  }
+  /// Header-only: a full decode of a large scan here stalled the editor.
+  Future<ui.Size> _decodeImageSize(String path) => readImageSize(path);
 
   Point2D pointFor(CropHandle handle) => switch (handle) {
     CropHandle.topLeft => _quad.topLeft,
@@ -111,10 +103,8 @@ class CropCorrectionViewModel extends ChangeNotifier {
   static Point2D _mid(Point2D a, Point2D b) =>
       Point2D(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2);
 
-  static Point2D _clampPoint(Point2D p) => Point2D(
-    x: p.x.clamp(0.0, 1.0),
-    y: p.y.clamp(0.0, 1.0),
-  );
+  static Point2D _clampPoint(Point2D p) =>
+      Point2D(x: p.x.clamp(0.0, 1.0), y: p.y.clamp(0.0, 1.0));
 
   static Point2D _offset(Point2D p, ui.Offset d) =>
       _clampPoint(Point2D(x: p.x + d.dx, y: p.y + d.dy));
@@ -179,7 +169,9 @@ class CropCorrectionViewModel extends ChangeNotifier {
     final q = _quad;
     switch (handle) {
       case CropHandle.topLeft:
-        _setQuadIfValid(q.copyWith(topLeft: _offset(q.topLeft, normalizedDelta)));
+        _setQuadIfValid(
+          q.copyWith(topLeft: _offset(q.topLeft, normalizedDelta)),
+        );
       case CropHandle.topRight:
         _setQuadIfValid(
           q.copyWith(topRight: _offset(q.topRight, normalizedDelta)),
@@ -257,20 +249,16 @@ class CropCorrectionViewModel extends ChangeNotifier {
     // Tap Scanner locks the tangential axis for edge grabs (BOTTOM uses
     // dy only, LEFT/RIGHT use dx only) so the edge stays parallel to its
     // prior orientation and corners slide on the adjacent sides.
-    final locked = horizontal
-        ? ui.Offset(0, delta.dy)
-        : ui.Offset(delta.dx, 0);
+    final locked = horizontal ? ui.Offset(0, delta.dy) : ui.Offset(delta.dx, 0);
     if (locked.dx == 0 && locked.dy == 0) return;
 
     final movedA = Point2D(x: a.x + locked.dx, y: a.y + locked.dy);
     final movedB = Point2D(x: b.x + locked.dx, y: b.y + locked.dy);
 
     final na =
-        _intersect(movedA, movedB, sideAStart, sideAEnd) ??
-        _clampPoint(movedA);
+        _intersect(movedA, movedB, sideAStart, sideAEnd) ?? _clampPoint(movedA);
     final nb =
-        _intersect(movedA, movedB, sideBStart, sideBEnd) ??
-        _clampPoint(movedB);
+        _intersect(movedA, movedB, sideBStart, sideBEnd) ?? _clampPoint(movedB);
 
     _setQuadIfValid(apply(na, nb));
   }
@@ -363,7 +351,7 @@ class CropCorrectionViewModel extends ChangeNotifier {
       }
       _page = updated;
       return true;
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _error = e;
       return false;
     } finally {

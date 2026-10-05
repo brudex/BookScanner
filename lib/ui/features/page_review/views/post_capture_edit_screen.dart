@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -16,6 +14,8 @@ import '../../../core/theme/app_theme.dart';
 import '../view_models/filter_adjustment_view_model.dart';
 import '../view_models/post_capture_edit_view_model.dart';
 import 'crop_correction_screen.dart';
+import '../../../core/widgets/page_image.dart';
+import 'preview_progress_overlay.dart';
 
 /// Filter / look polish after crop (Tap Scanner order: capture → crop →
 /// filters → name). Crop is not offered here — it already ran.
@@ -90,14 +90,16 @@ class _PostCaptureEditScreenState extends State<PostCaptureEditScreen> {
   }
 
   Future<void> _onSave() async {
+    // apply() marks saving synchronously; ignore a second tap mid-save.
+    if (_viewModel.editor?.saving ?? false) return;
     _leavingForward = true;
     final ok = await _viewModel.saveAndAdvance();
     if (!mounted) return;
     if (!ok) {
       _leavingForward = false;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${_viewModel.error}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).saveChangesFailed)),
+      );
       return;
     }
     if (_viewModel.finished) {
@@ -162,49 +164,55 @@ class _PostCaptureEditScreenState extends State<PostCaptureEditScreen> {
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            // Outer: page list / current editor. Inner: that editor's own
+            // saving flag -- listening only to the page list left the button
+            // tappable with no spinner while a save ran.
             child: ListenableBuilder(
               listenable: _viewModel,
-              builder: (context, _) {
-                final editor = _viewModel.editor;
-                final saving = editor?.saving ?? false;
-                final label = _viewModel.isLastPage
-                    ? l10n.postCaptureSave
-                    : l10n.postCaptureNext;
-                return SizedBox(
-                  height: 52,
-                  child: FilledButton(
-                    key: const ValueKey('postCaptureSaveButton'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.accent,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: saving ? null : _onSave,
-                    child: saving
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                label,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
+              builder: (context, _) => ListenableBuilder(
+                listenable: _viewModel.editor ?? _viewModel,
+                builder: (context, _) {
+                  final editor = _viewModel.editor;
+                  final saving = editor?.saving ?? false;
+                  final label = _viewModel.isLastPage
+                      ? l10n.postCaptureSave
+                      : l10n.postCaptureNext;
+                  return SizedBox(
+                    height: 52,
+                    child: FilledButton(
+                      key: const ValueKey('postCaptureSaveButton'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.accent,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: saving ? null : _onSave,
+                      child: saving
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
                               ),
-                              const SizedBox(width: 6),
-                              const Icon(LucideIcons.chevronRight, size: 20),
-                            ],
-                          ),
-                  ),
-                );
-              },
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  label,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Icon(LucideIcons.chevronRight, size: 20),
+                              ],
+                            ),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -230,8 +238,8 @@ class _EditorBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final previewPath = editor.previewImagePath!;
-    final preview = Image.file(
-      File(previewPath),
+    final preview = PageImage(
+      path: previewPath,
       key: ValueKey('postCapturePreview-$previewPath-${editor.previewEpoch}'),
       fit: BoxFit.contain,
     );
@@ -241,19 +249,23 @@ class _EditorBody extends StatelessWidget {
           child: Padding(
             // Inset like Tap filter screen — room around the page preview.
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-            child: Center(
-              child: editor.showingSavedProcessed
-                  ? preview
-                  : ColorFiltered(
-                      colorFilter: ColorFilter.matrix(
-                        _previewMatrix(
-                          editor.filter,
-                          editor.brightness,
-                          editor.contrast,
+            child: PreviewProgressOverlay(
+              busy: editor.previewRendering,
+              saving: editor.saving,
+              child: Center(
+                child: editor.showingSavedProcessed
+                    ? preview
+                    : ColorFiltered(
+                        colorFilter: ColorFilter.matrix(
+                          _previewMatrix(
+                            editor.filter,
+                            editor.brightness,
+                            editor.contrast,
+                          ),
                         ),
+                        child: preview,
                       ),
-                      child: preview,
-                    ),
+              ),
             ),
           ),
         ),
@@ -270,7 +282,10 @@ class _EditorBody extends StatelessWidget {
                     key: ValueKey('postCaptureFilter-${filter.name}'),
                     label: Text(_filterLabel(filter)),
                     selected: editor.filter == filter,
-                    onSelected: (_) => editor.selectFilter(filter),
+                    // Locked while a look is applied so taps don't pile up.
+                    onSelected: editor.previewRendering || editor.saving
+                        ? null
+                        : (_) => editor.selectFilter(filter),
                   ),
                 ),
             ],
@@ -281,6 +296,7 @@ class _EditorBody extends StatelessWidget {
           child: Column(
             children: [
               _SliderRow(
+                enabled: !editor.saving,
                 label: l10n.brightnessLabel,
                 value: editor.brightness,
                 min: -100,
@@ -288,6 +304,7 @@ class _EditorBody extends StatelessWidget {
                 onChanged: editor.setBrightness,
               ),
               _SliderRow(
+                enabled: !editor.saving,
                 label: l10n.contrastLabel,
                 value: editor.contrast,
                 min: -100,
@@ -304,6 +321,7 @@ class _EditorBody extends StatelessWidget {
 
 class _SliderRow extends StatelessWidget {
   const _SliderRow({
+    this.enabled = true,
     required this.label,
     required this.value,
     required this.min,
@@ -317,6 +335,9 @@ class _SliderRow extends StatelessWidget {
   final double max;
   final ValueChanged<double> onChanged;
 
+  /// False while saving, so the look cannot change mid-save.
+  final bool enabled;
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -326,7 +347,12 @@ class _SliderRow extends StatelessWidget {
           child: Text(label, style: const TextStyle(color: Colors.white70)),
         ),
         Expanded(
-          child: Slider(value: value, min: min, max: max, onChanged: onChanged),
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            onChanged: enabled ? onChanged : null,
+          ),
         ),
       ],
     );

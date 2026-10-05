@@ -8,4 +8,5 @@ class VisionChannelContract {
   static const String methodDetectStill = 'detectStill';
   static const String methodEnhanceStill = 'enhanceStill';
   static const String methodScoreStill = 'scoreStill';
+  static const String methodDownscaleStill = 'downscaleStill';
 }

@@ -6,33 +6,31 @@ import 'package:bookscanner/data/services/ocr/adapters/fake_ocr_provider.dart';
 import 'package:bookscanner/domain/models/capture_models.dart';
 import 'package:bookscanner/domain/models/geometry.dart';
 import 'package:bookscanner/domain/models/provider_info.dart';
+import 'package:bookscanner/domain/models/scan_page.dart';
 import 'package:bookscanner/domain/providers/capture_provider.dart';
 import 'package:bookscanner/domain/providers/ocr_provider.dart';
 import 'package:bookscanner/domain/repositories/page_repository.dart';
 import 'package:bookscanner/main.dart';
+import 'package:bookscanner/routing/app_router.dart';
 import 'package:bookscanner/ui/core/di/service_locator.dart';
-import 'package:bookscanner/ui/features/capture/views/capture_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image/image.dart' as img;
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'support/post_capture_helpers.dart';
 
-/// A capture provider double for this integration test: like
-/// `FakeCaptureProvider` (used elsewhere for contract tests), it writes real
-/// JPEGs so downstream pipeline stages (split/dewarp/enhance) operate on
-/// genuine files -- but unlike it, `analysisStream()` never emits a frame.
-/// `FakeCaptureProvider`'s synthetic frames always report every auto-capture
-/// gate satisfied, which fires one extra, unrequested capture ~600ms after
-/// the session opens; fine for the existing manual-smoke-test style of
-/// `capture_flow_test.dart`, but it would make this test's page-count
-/// assertions racy against real wall-clock timing. Keeping the session
-/// purely manual makes the expected page count exactly `2 * shutter taps`
-/// (book mode splits every capture into two pages).
-class _ManualOnlyCaptureProvider implements CaptureProvider {
-  _ManualOnlyCaptureProvider(this._tmpDir);
+/// Stands in for the system document scanner (ML Kit / VisionKit) that
+/// book mode opens: each scan returns [pagesPerScan] real JPEGs marked
+/// `nativeReady`, as Google's scanner returns already-flattened pages.
+/// `analysisStream()` never emits, so nothing fires an unrequested capture.
+class _SystemScannerDouble implements CaptureProvider, BatchDocumentCapture {
+  _SystemScannerDouble(this._tmpDir);
+
+  /// Pages each scan returns, as if the user kept two shots.
+  static const pagesPerScan = 2;
 
   final Directory _tmpDir;
   int _captureCount = 0;
@@ -104,8 +102,16 @@ class _ManualOnlyCaptureProvider implements CaptureProvider {
       warnings: const {},
       capturedAtMs: DateTime.now().millisecondsSinceEpoch,
       providerInfo: info,
+      analyzedFromStill: true,
+      detectionConfidence: 1,
+      nativeReady: true,
     );
   }
+
+  @override
+  Future<List<StillCapture>> scanDocuments({int maxPages = 50}) async => [
+    for (var i = 0; i < pagesPerScan && i < maxPages; i++) await captureStill(),
+  ];
 
   @override
   Future<void> setFlashMode(FlashMode mode) async {}
@@ -125,8 +131,8 @@ class _ManualOnlyCaptureProvider implements CaptureProvider {
 /// SPEC 13: "Integration tests must cover: ... document capture with a fake
 /// adapter, multi-page book session, ... OCR correction, PDF/Markdown/DOCX
 /// export ...". This test drives one realistic book-mode session end to
-/// end -- capture two spreads, correct a recognized OCR block, export as
-/// Markdown -- using the fake capture and OCR adapters so it is
+/// end -- scan two pages, split a photographed spread, correct a recognized
+/// OCR block, export as Markdown -- using fake scanner and OCR adapters so it is
 /// deterministic and platform-independent (no dependency on the real
 /// camera/ML pipeline). Run on both an Android emulator/device and an iOS
 /// simulator/device per SPEC 13.
@@ -141,7 +147,7 @@ void main() {
       locator.unregister<CaptureProvider>();
     }
     locator.registerFactory<CaptureProvider>(
-      () => _ManualOnlyCaptureProvider(paths.tmpDir),
+      () => _SystemScannerDouble(paths.tmpDir),
     );
 
     if (locator.isRegistered<OcrProvider>()) {
@@ -151,7 +157,7 @@ void main() {
   });
 
   testWidgets(
-    'book mode: capture two spreads with a fake adapter, correct OCR text, export as Markdown',
+    'book mode: scan two pages, split a spread, correct OCR text, export as Markdown',
     (tester) async {
       await tester.pumpWidget(const BookScannerApp());
       await tester.pumpAndSettle();
@@ -165,48 +171,45 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('bookSetupContinueButton')));
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey('shutterButton')),
-        findsOneWidget,
-        reason:
-            'Camera permission must be pre-granted for this deterministic '
-            'flow, e.g. `adb shell pm grant <applicationId> '
-            'android.permission.CAMERA` before running on a fresh '
-            'emulator/device.',
-      );
-      final projectId = tester
-          .widget<CaptureScreen>(find.byType(CaptureScreen))
-          .projectId;
-
-      // Two manual captures -> 4 pages (book mode splits every spread photo
-      // into a left/right page pair).
-      await tester.tap(find.byKey(const ValueKey('shutterButton')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('shutterButton')));
-      await tester.pumpAndSettle();
-      expect(find.text('4'), findsWidgets);
-
-      await tester.tap(find.byKey(const ValueKey('captureDoneButton')));
-      await tester.pumpAndSettle();
-      // Continue → crop → filters per page → name → review.
-      for (var i = 0; i < 4; i++) {
-        await advancePostCapturePage(tester);
-      }
-      await tester.tap(find.byKey(const ValueKey('captureNameSaveButton')));
-      await tester.pumpAndSettle();
-
+      // Continue opens the system scanner straight away (no camera screen
+      // or permission rationale of our own); its two pages land in Review.
       expect(find.byKey(const ValueKey('pageReviewList')), findsOneWidget);
-      final pages = await locator<PageRepository>().getPages(projectId);
-      expect(pages, hasLength(4));
+      expect(find.byKey(const ValueKey('shutterButton')), findsNothing);
+      final projectId = GoRouter.of(
+        tester.element(find.byKey(const ValueKey('pageReviewList'))),
+      ).state.pathParameters['projectId']!;
+
+      Future<List<ScanPage>> orderedPages() async =>
+          (await locator<PageRepository>().getPages(projectId))
+            ..sort((a, b) => a.sequence.compareTo(b.sequence));
+
+      var pages = await orderedPages();
+      expect(pages, hasLength(2));
       expect(
         pages.map((page) => page.spreadSiblingPageId),
-        everyElement(isNotNull),
+        everyElement(isNull),
       );
 
-      // Run OCR on the first page and correct one recognized block.
+      // The first "page" was a photographed open spread: split it in two.
       await tester.tap(find.byKey(ValueKey('pageMenu-${pages.first.id}')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Recognize text'));
+      await tester.tap(find.text('Split into two pages'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      pages = await orderedPages();
+      expect(pages, hasLength(3));
+      expect(pages[0].spreadSiblingPageId, pages[1].id);
+      expect(pages[1].spreadSiblingPageId, pages[0].id);
+      expect(pages[2].spreadSiblingPageId, isNull);
+
+      // Review no longer offers "Recognize text" (export runs OCR); open the
+      // OCR screen directly to correct one recognized block.
+      expect(find.text('Recognize text'), findsNothing);
+      GoRouter.of(
+        tester.element(find.byKey(const ValueKey('pageReviewList'))),
+      ).push(AppRoutes.ocrReviewFor(projectId, pages.first.id));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('ocrRunButton')), findsOneWidget);
@@ -232,10 +235,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pageReviewList')), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('reviewExportButton')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('exportFormatMarkdown')));
-      await tester.pumpAndSettle();
+      await exportFromReviewSheet(tester, 'reviewExportMarkdown');
 
       expect(
         find.byKey(const ValueKey('exportCompleteMessage')),

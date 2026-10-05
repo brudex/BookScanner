@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,6 +7,8 @@ import '../../../../domain/use_cases/capture_page_use_case.dart';
 import '../../../../l10n/gen/app_localizations.dart';
 import '../../../core/di/service_locator.dart';
 import '../view_models/filter_adjustment_view_model.dart';
+import '../../../core/widgets/page_image.dart';
+import 'preview_progress_overlay.dart';
 
 /// Filter picker + brightness/contrast/sharpness adjustment screen (SPEC
 /// 6.2). Reached from Page Review; applying re-runs the enhancement
@@ -55,14 +55,17 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
   }
 
   Future<void> _apply() async {
+    // apply() marks saving synchronously, so a second tap that lands before
+    // the button redraws is ignored here.
+    if (_viewModel.saving) return;
     final ok = await _viewModel.apply();
     if (!mounted) return;
     if (ok) {
       context.pop();
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${_viewModel.error}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).saveChangesFailed)),
+      );
     }
   }
 
@@ -100,35 +103,40 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
             );
           }
           final previewPath = _viewModel.previewImagePath!;
-          final preview = Image.file(
-            File(previewPath),
+          final preview = PageImage(
+            path: previewPath,
             key: ValueKey(
               'adjustPreviewImage-$previewPath-${_viewModel.previewEpoch}',
             ),
+            fit: BoxFit.contain,
             gaplessPlayback: false,
           );
           return Column(
             children: [
               Expanded(
-                child: Center(
-                  child: _viewModel.showingRenderedPreview
-                      ? KeyedSubtree(
-                          key: const ValueKey('adjustPreview'),
-                          child: preview,
-                        )
-                      : ColorFiltered(
-                          key: const ValueKey('adjustPreview'),
-                          // Live, GPU-side approximation until the real
-                          // crop+filter preview JPEG finishes rendering.
-                          colorFilter: ColorFilter.matrix(
-                            _colorMatrixFor(
-                              _viewModel.filter,
-                              _viewModel.brightness,
-                              _viewModel.contrast,
+                child: PreviewProgressOverlay(
+                  busy: _viewModel.previewRendering,
+                  saving: _viewModel.saving,
+                  child: Center(
+                    child: _viewModel.showingRenderedPreview
+                        ? KeyedSubtree(
+                            key: const ValueKey('adjustPreview'),
+                            child: preview,
+                          )
+                        : ColorFiltered(
+                            key: const ValueKey('adjustPreview'),
+                            // Live, GPU-side approximation until the real
+                            // crop+filter preview JPEG finishes rendering.
+                            colorFilter: ColorFilter.matrix(
+                              _colorMatrixFor(
+                                _viewModel.filter,
+                                _viewModel.brightness,
+                                _viewModel.contrast,
+                              ),
                             ),
+                            child: preview,
                           ),
-                          child: preview,
-                        ),
+                  ),
                 ),
               ),
               Padding(
@@ -141,7 +149,11 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
                         key: ValueKey('adjustFilterChip-${filter.name}'),
                         label: Text(_filterLabel(l10n, filter)),
                         selected: _viewModel.filter == filter,
-                        onSelected: (_) => _viewModel.selectFilter(filter),
+                        // Locked while a look is applied so taps don't pile up.
+                        onSelected:
+                            _viewModel.previewRendering || _viewModel.saving
+                            ? null
+                            : (_) => _viewModel.selectFilter(filter),
                       ),
                   ],
                 ),
@@ -151,6 +163,7 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
                 child: Column(
                   children: [
                     _AdjustSlider(
+                      enabled: !_viewModel.saving,
                       sliderKey: const ValueKey('adjustBrightnessSlider'),
                       label: l10n.brightnessLabel,
                       value: _viewModel.brightness,
@@ -159,6 +172,7 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
                       onChanged: _viewModel.setBrightness,
                     ),
                     _AdjustSlider(
+                      enabled: !_viewModel.saving,
                       sliderKey: const ValueKey('adjustContrastSlider'),
                       label: l10n.contrastLabel,
                       value: _viewModel.contrast,
@@ -167,6 +181,7 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
                       onChanged: _viewModel.setContrast,
                     ),
                     _AdjustSlider(
+                      enabled: !_viewModel.saving,
                       sliderKey: const ValueKey('adjustSharpnessSlider'),
                       label: l10n.sharpnessLabel,
                       value: _viewModel.sharpness,
@@ -175,6 +190,7 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
                       onChanged: _viewModel.setSharpness,
                     ),
                     _AdjustSlider(
+                      enabled: !_viewModel.saving,
                       sliderKey: const ValueKey('adjustFineRotationSlider'),
                       label: l10n.fineRotationLabel,
                       value: _viewModel.fineRotationDegrees,
@@ -184,6 +200,7 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
                     ),
                     if (_viewModel.filter == PageFilter.blackAndWhite)
                       _AdjustSlider(
+                        enabled: !_viewModel.saving,
                         sliderKey: const ValueKey('adjustThresholdSlider'),
                         label: l10n.thresholdLabel,
                         value: _viewModel.threshold,
@@ -240,6 +257,7 @@ class _FilterAdjustmentScreenState extends State<FilterAdjustmentScreen> {
 
 class _AdjustSlider extends StatelessWidget {
   const _AdjustSlider({
+    this.enabled = true,
     required this.sliderKey,
     required this.label,
     required this.value,
@@ -255,6 +273,9 @@ class _AdjustSlider extends StatelessWidget {
   final double max;
   final ValueChanged<double> onChanged;
 
+  /// False while saving, so the look cannot change mid-save.
+  final bool enabled;
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -269,7 +290,7 @@ class _AdjustSlider extends StatelessWidget {
             value: value,
             min: min,
             max: max,
-            onChanged: onChanged,
+            onChanged: enabled ? onChanged : null,
           ),
         ),
       ],

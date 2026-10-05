@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:image/image.dart' as img;
 
@@ -22,19 +23,26 @@ class FileStorageService {
     String sourceImagePath,
     String pageId,
   ) async {
-    final bytes = await File(sourceImagePath).readAsBytes();
-    final decoded = img.decodeImage(bytes);
+    final outPath = _paths.thumbnailPathFor(pageId);
+    // Decoding a full page with package:image takes seconds and hundreds of
+    // MB on a large scan; doing it on the UI isolate froze Review (ANR).
+    await Isolate.run(
+      () => _writeThumbnail(sourceImagePath, outPath, _thumbnailMaxDimension),
+    );
+    return outPath;
+  }
+
+  static void _writeThumbnail(String source, String outPath, int maxDim) {
+    final decoded = img.decodeImage(File(source).readAsBytesSync());
     if (decoded == null) {
-      throw StateError('Cannot decode image at $sourceImagePath');
+      throw StateError('Cannot decode image at $source');
     }
     final resized = img.copyResize(
       decoded,
-      width: decoded.width >= decoded.height ? _thumbnailMaxDimension : null,
-      height: decoded.height > decoded.width ? _thumbnailMaxDimension : null,
+      width: decoded.width >= decoded.height ? maxDim : null,
+      height: decoded.height > decoded.width ? maxDim : null,
     );
-    final outPath = _paths.thumbnailPathFor(pageId);
-    await File(outPath).writeAsBytes(img.encodeJpg(resized, quality: 80));
-    return outPath;
+    File(outPath).writeAsBytesSync(img.encodeJpg(resized, quality: 80));
   }
 
   Future<void> deletePageFiles(ScanPage page) async {

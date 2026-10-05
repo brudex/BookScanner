@@ -245,8 +245,14 @@ class _BlockTile extends StatelessWidget {
           : null,
       child: ListTile(
         onTap: onTap,
-        title: SelectableText('$prefix${block.text}', style: style),
-        // SelectableText allows select/copy (SPEC 6.4); tap opens correct.
+        // SelectableText allows select/copy by long-press (SPEC 6.4). It
+        // swallows taps, so forward them or only the card's empty margin
+        // would open the correction dialog.
+        title: SelectableText(
+          '$prefix${block.text}',
+          style: style,
+          onTap: onTap,
+        ),
         subtitle: block.isLowConfidence || block.wasCorrected
             ? Text(
                 block.wasCorrected

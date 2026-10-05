@@ -18,7 +18,9 @@ import '../../../../l10n/gen/app_localizations.dart';
 class ExportProgressView extends StatelessWidget {
   const ExportProgressView({super.key, required this.job, required this.l10n});
 
-  final ExportJob job;
+  /// Null while the export is still being prepared (no job yet): the bar
+  /// then runs indeterminate.
+  final ExportJob? job;
   final AppLocalizations l10n;
 
   @override
@@ -29,7 +31,7 @@ class ExportProgressView extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           LinearProgressIndicator(
-            value: job.progress,
+            value: job?.progress,
             key: const ValueKey('exportProgressBar'),
           ),
           const SizedBox(height: 16),
@@ -122,11 +124,15 @@ class ExportFailedView extends StatelessWidget {
     required this.job,
     required this.l10n,
     required this.onRetry,
+    this.message,
   });
 
-  final ExportJob job;
+  /// Null when the export failed before a job was created; the error is
+  /// then given in [message].
+  final ExportJob? job;
   final AppLocalizations l10n;
   final VoidCallback onRetry;
+  final String? message;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -138,7 +144,8 @@ class ExportFailedView extends StatelessWidget {
           const Icon(Icons.error_outline, color: Colors.red, size: 56),
           const SizedBox(height: 16),
           Text(l10n.exportFailed),
-          if (job.error != null) Text(job.error!, textAlign: TextAlign.center),
+          if ((job?.error ?? message) != null)
+            Text(job?.error ?? message!, textAlign: TextAlign.center),
           const SizedBox(height: 24),
           FilledButton(onPressed: onRetry, child: Text(l10n.retry)),
         ],
