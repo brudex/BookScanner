@@ -30,7 +30,12 @@ Future<void> exportFromReviewSheet(
   await tester.tap(find.byKey(ValueKey(formatCardKey)));
   await tester.pumpAndSettle();
   if (searchablePdf) {
-    await tester.tap(find.byKey(const ValueKey('reviewExportOcrSwitch')));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('reviewExportOcrSwitch')),
+        matching: find.byType(Switch),
+      ),
+    );
     await tester.pumpAndSettle();
   }
   await tester.ensureVisible(find.byKey(const ValueKey('reviewExportConfirm')));

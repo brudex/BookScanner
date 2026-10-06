@@ -11,12 +11,14 @@ class ExportLaunch {
     this.pdfOptions,
     this.markdownOptions,
     this.epubOptions,
+    this.docxOptions,
   });
 
   final ExportFormat format;
   final PdfExportOptions? pdfOptions;
   final MarkdownExportOptions? markdownOptions;
   final EpubExportOptions? epubOptions;
+  final DocxExportOptions? docxOptions;
 }
 
 /// Shows the Export / Convert sheet and returns the chosen format and
@@ -65,6 +67,8 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
   _PdfQuality _quality = _PdfQuality.high;
   bool _pageMarkers = true;
   bool _includeImages = true;
+  bool _recognizeFormulas = false;
+  bool _preserveLayout = false;
 
   void _confirm() {
     final launch = switch (_format) {
@@ -82,13 +86,17 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
         format: ExportFormat.markdown,
         markdownOptions: MarkdownExportOptions(
           includePageBoundaryComments: _pageMarkers,
+          recognizeFormulas: _recognizeFormulas,
         ),
       ),
       _SheetFormat.epub => ExportLaunch(
         format: ExportFormat.epub,
         epubOptions: EpubExportOptions(includePageImages: _includeImages),
       ),
-      _SheetFormat.docx => const ExportLaunch(format: ExportFormat.docx),
+      _SheetFormat.docx => ExportLaunch(
+        format: ExportFormat.docx,
+        docxOptions: DocxExportOptions(preserveLayout: _preserveLayout),
+      ),
     };
     Navigator.of(context).pop(launch);
   }
@@ -230,6 +238,29 @@ class _ExportConvertSheetState extends State<ExportConvertSheet> {
                     label: l10n.reviewIncludePageMarkers,
                     value: _pageMarkers,
                     onChanged: (value) => setState(() => _pageMarkers = value),
+                  ),
+                  _SwitchRow(
+                    key: const ValueKey('reviewRecognizeFormulasSwitch'),
+                    icon: Icons.functions,
+                    label: l10n.reviewRecognizeFormulas,
+                    value: _recognizeFormulas,
+                    onChanged: (value) =>
+                        setState(() => _recognizeFormulas = value),
+                  ),
+                ],
+              ),
+            if (_format == _SheetFormat.docx)
+              _OptionsPanel(
+                key: const ValueKey('reviewWordOptions'),
+                title: l10n.reviewExportWordOptions,
+                children: [
+                  _SwitchRow(
+                    key: const ValueKey('reviewKeepLayoutSwitch'),
+                    icon: Icons.view_quilt_outlined,
+                    label: l10n.reviewKeepPageLayout,
+                    value: _preserveLayout,
+                    onChanged: (value) =>
+                        setState(() => _preserveLayout = value),
                   ),
                 ],
               ),

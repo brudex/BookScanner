@@ -371,6 +371,88 @@ void main() {
     expect(chosen?.pdfOptions?.searchable, isFalse);
   });
 
+  Future<ExportLaunch?> pickOnSheet(
+    WidgetTester tester,
+    String formatKey, {
+    String? switchKey,
+  }) async {
+    ExportLaunch? chosen;
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () async =>
+                chosen = await showExportConvertSheet(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey(formatKey)));
+    await tester.pumpAndSettle();
+    if (switchKey != null) {
+      final toggle = find.descendant(
+        of: find.byKey(ValueKey(switchKey)),
+        matching: find.byType(Switch),
+      );
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+    }
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('reviewExportConfirm')),
+    );
+    await tester.tap(find.byKey(const ValueKey('reviewExportConfirm')));
+    await tester.pumpAndSettle();
+    return chosen;
+  }
+
+  testWidgets('Word offers "Keep page layout", off by default', (tester) async {
+    final plain = await pickOnSheet(tester, 'reviewExportWord');
+    expect(plain?.docxOptions?.preserveLayout, isFalse);
+
+    final layout = await pickOnSheet(
+      tester,
+      'reviewExportWord',
+      switchKey: 'reviewKeepLayoutSwitch',
+    );
+    expect(layout?.format, ExportFormat.docx);
+    expect(layout?.docxOptions?.preserveLayout, isTrue);
+  });
+
+  testWidgets('Markdown offers "Recognize formulas", off by default', (
+    tester,
+  ) async {
+    final plain = await pickOnSheet(tester, 'reviewExportMarkdown');
+    expect(plain?.markdownOptions?.recognizeFormulas, isFalse);
+
+    final latex = await pickOnSheet(
+      tester,
+      'reviewExportMarkdown',
+      switchKey: 'reviewRecognizeFormulasSwitch',
+    );
+    expect(latex?.markdownOptions?.recognizeFormulas, isTrue);
+  });
+
+  testWidgets('the layout switch is shown only for Word', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showExportConvertSheet(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    // PDF is selected first.
+    expect(find.byKey(const ValueKey('reviewKeepLayoutSwitch')), findsNothing);
+  });
+
   testWidgets('launched with a format, shows progress straight away', (
     tester,
   ) async {

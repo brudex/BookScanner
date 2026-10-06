@@ -58,19 +58,29 @@ class MarkdownExportOptions {
     this.includePageBoundaryComments = true,
     this.includeFrontMatter = true,
     this.packageAsZip = false,
+    this.recognizeFormulas = false,
   });
 
   final bool includePageBoundaryComments;
   final bool includeFrontMatter;
   final bool packageAsZip;
+
+  /// Server Markdown only: rewrite maths as LaTeX (`$…$` / `$$…$$`).
+  final bool recognizeFormulas;
 }
 
 enum DocxPageMode { reflowable, preservePageBreaks, facsimile }
 
 class DocxExportOptions {
-  const DocxExportOptions({this.pageMode = DocxPageMode.reflowable});
+  const DocxExportOptions({
+    this.pageMode = DocxPageMode.reflowable,
+    this.preserveLayout = false,
+  });
 
   final DocxPageMode pageMode;
+
+  /// Server Word only: keep each page's layout instead of one reading flow.
+  final bool preserveLayout;
 }
 
 /// Options for an EPUB package built from scanned pages and any OCR already

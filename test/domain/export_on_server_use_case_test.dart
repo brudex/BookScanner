@@ -143,6 +143,7 @@ void main() {
       'title': 'My Notes',
       'language': 'en',
       'page_breaks': true,
+      'preserve_layout': false,
       'author': 'Ada',
     });
     expect(saved, endsWith('.docx'));
@@ -159,5 +160,60 @@ void main() {
     )(projectId: 'proj', title: 'T', format: ExportFormat.docx);
 
     expect(api.options!.containsKey('author'), isFalse);
+  });
+
+  ExportOnServerUseCase useCase(_FakeApi api) => ExportOnServerUseCase(
+    api: api,
+    pageLoader: _Pages(),
+    exportProvider: _LocalPdf(),
+    paths: _Paths(root),
+  );
+
+  test('Word "Keep page layout" sends preserve_layout: true', () async {
+    final api = _FakeApi('x.docx');
+    await useCase(api)(
+      projectId: 'proj',
+      title: 'T',
+      format: ExportFormat.docx,
+      docxOptions: const DocxExportOptions(preserveLayout: true),
+    );
+
+    expect(api.options!['preserve_layout'], isTrue);
+  });
+
+  test('Markdown sends recognize_formulas (off unless chosen)', () async {
+    final off = _FakeApi('x.zip');
+    await useCase(off)(
+      projectId: 'proj',
+      title: 'T',
+      format: ExportFormat.markdown,
+    );
+    expect(off.format, 'markdown_zip');
+    expect(off.options!['recognize_formulas'], isFalse);
+
+    final on = _FakeApi('x.zip');
+    await useCase(on)(
+      projectId: 'proj',
+      title: 'T',
+      format: ExportFormat.markdown,
+      markdownOptions: const MarkdownExportOptions(recognizeFormulas: true),
+    );
+    expect(on.options!['recognize_formulas'], isTrue);
+  });
+
+  test('PDF never sends preserve_layout or recognize_formulas', () async {
+    // The server answers 400 if a PDF request carries preserve_layout.
+    final api = _FakeApi('x.pdf');
+    await useCase(api)(
+      projectId: 'proj',
+      title: 'T',
+      format: ExportFormat.searchablePdf,
+      docxOptions: const DocxExportOptions(preserveLayout: true),
+      markdownOptions: const MarkdownExportOptions(recognizeFormulas: true),
+    );
+
+    expect(api.format, 'pdf');
+    expect(api.options!.containsKey('preserve_layout'), isFalse);
+    expect(api.options!.containsKey('recognize_formulas'), isFalse);
   });
 }

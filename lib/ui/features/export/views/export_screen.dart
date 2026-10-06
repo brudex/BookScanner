@@ -112,6 +112,8 @@ class _ExportScreenState extends State<ExportScreen> {
     if (markdown != null) _viewModel.setMarkdownOptions(markdown);
     final epub = launch.epubOptions;
     if (epub != null) _viewModel.setEpubOptions(epub);
+    final docx = launch.docxOptions;
+    if (docx != null) _viewModel.setDocxOptions(docx);
     await _startExport(launch.format);
   }
 

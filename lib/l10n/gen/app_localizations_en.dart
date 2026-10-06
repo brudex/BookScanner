@@ -583,6 +583,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get reviewIncludePageMarkers => 'Page markers';
 
   @override
+  String get reviewRecognizeFormulas => 'Recognize formulas (LaTeX)';
+
+  @override
+  String get reviewExportWordOptions => 'WORD OPTIONS';
+
+  @override
+  String get reviewKeepPageLayout => 'Keep page layout';
+
+  @override
   String get reviewIncludePageImages => 'Include page images';
 
   @override
@@ -1030,21 +1039,42 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get onboardingScanBody =>
-      'Turn any paper into a crisp, ready-to-share PDF — right from your camera.';
+      'Edges are found for you. Get a crisp, ready-to-share PDF straight from your camera.';
 
   @override
-  String get onboardingBookTitle => 'Built for Books, Too';
+  String get onboardingBookTitle => 'Scan Books Fast';
 
   @override
   String get onboardingBookBody =>
-      'Capture a full two-page spread and we\'ll automatically flatten curves and split the pages.';
+      'Scan page after page in one go. Photographed a two-page spread? Split it in one tap.';
 
   @override
   String get onboardingOrganizeTitle => 'Export & Stay Organized';
 
   @override
   String get onboardingOrganizeBody =>
-      'Save as PDF or Word, recognize text with OCR, and keep every scan easy to find.';
+      'Save as PDF, Word, EPUB or Markdown with searchable text, and find any scan in seconds.';
+
+  @override
+  String get onboardingScanChip => 'Edges detected';
+
+  @override
+  String get onboardingBookChip => 'Page after page';
+
+  @override
+  String get onboardingSearchSample => 'photosynthesis';
+
+  @override
+  String get onboardingFormatSearchable => 'Searchable';
+
+  @override
+  String get onboardingFormatWord => 'Word';
+
+  @override
+  String get onboardingFormatEbook => 'eBook';
+
+  @override
+  String get onboardingFormatMarkdown => 'Markdown';
 
   @override
   String get unlockTitle => 'BookScanner is locked';

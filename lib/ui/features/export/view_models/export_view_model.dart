@@ -42,6 +42,11 @@ class ExportViewModel extends ChangeNotifier {
 
   MarkdownExportOptions _markdownOptions = const MarkdownExportOptions();
   EpubExportOptions _epubOptions = const EpubExportOptions();
+  DocxExportOptions _docxOptions = const DocxExportOptions();
+
+  void setDocxOptions(DocxExportOptions value) {
+    _docxOptions = value;
+  }
 
   void setMarkdownOptions(MarkdownExportOptions value) {
     _markdownOptions = value;
@@ -154,6 +159,8 @@ class ExportViewModel extends ChangeNotifier {
             format: format,
             author: _project?.metadata.author,
             pdfOptions: _pdfOptions,
+            markdownOptions: _markdownOptions,
+            docxOptions: _docxOptions,
             onProgress: (progress) {
               final current = _job;
               if (current == null) return;
@@ -197,7 +204,7 @@ class ExportViewModel extends ChangeNotifier {
         isbn: _project?.metadata.isbn,
         pdfOptions: _pdfOptions,
         markdownOptions: _markdownOptions,
-        docxOptions: const DocxExportOptions(),
+        docxOptions: _docxOptions,
         epubOptions: _epubOptions,
       );
       _job = job;

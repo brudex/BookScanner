@@ -1102,6 +1102,24 @@ abstract class AppLocalizations {
   /// **'Page markers'**
   String get reviewIncludePageMarkers;
 
+  /// Markdown setting: server writes maths as LaTeX
+  ///
+  /// In en, this message translates to:
+  /// **'Recognize formulas (LaTeX)'**
+  String get reviewRecognizeFormulas;
+
+  /// Section label for Word-only export settings
+  ///
+  /// In en, this message translates to:
+  /// **'WORD OPTIONS'**
+  String get reviewExportWordOptions;
+
+  /// Word setting: keep each page's layout instead of one reading flow
+  ///
+  /// In en, this message translates to:
+  /// **'Keep page layout'**
+  String get reviewKeepPageLayout;
+
   /// EPUB setting: embed the scanned page image
   ///
   /// In en, this message translates to:
@@ -1951,19 +1969,19 @@ abstract class AppLocalizations {
   /// Body text of the first onboarding slide
   ///
   /// In en, this message translates to:
-  /// **'Turn any paper into a crisp, ready-to-share PDF — right from your camera.'**
+  /// **'Edges are found for you. Get a crisp, ready-to-share PDF straight from your camera.'**
   String get onboardingScanBody;
 
   /// Headline of the second onboarding slide
   ///
   /// In en, this message translates to:
-  /// **'Built for Books, Too'**
+  /// **'Scan Books Fast'**
   String get onboardingBookTitle;
 
   /// Body text of the second onboarding slide
   ///
   /// In en, this message translates to:
-  /// **'Capture a full two-page spread and we\'ll automatically flatten curves and split the pages.'**
+  /// **'Scan page after page in one go. Photographed a two-page spread? Split it in one tap.'**
   String get onboardingBookBody;
 
   /// Headline of the third onboarding slide
@@ -1975,8 +1993,50 @@ abstract class AppLocalizations {
   /// Body text of the third onboarding slide
   ///
   /// In en, this message translates to:
-  /// **'Save as PDF or Word, recognize text with OCR, and keep every scan easy to find.'**
+  /// **'Save as PDF, Word, EPUB or Markdown with searchable text, and find any scan in seconds.'**
   String get onboardingOrganizeBody;
+
+  /// Small label over the first onboarding picture
+  ///
+  /// In en, this message translates to:
+  /// **'Edges detected'**
+  String get onboardingScanChip;
+
+  /// Small label over the second onboarding picture
+  ///
+  /// In en, this message translates to:
+  /// **'Page after page'**
+  String get onboardingBookChip;
+
+  /// Example search word shown in the third onboarding illustration
+  ///
+  /// In en, this message translates to:
+  /// **'photosynthesis'**
+  String get onboardingSearchSample;
+
+  /// Caption under PDF in the third onboarding illustration
+  ///
+  /// In en, this message translates to:
+  /// **'Searchable'**
+  String get onboardingFormatSearchable;
+
+  /// Caption under DOCX in the third onboarding illustration
+  ///
+  /// In en, this message translates to:
+  /// **'Word'**
+  String get onboardingFormatWord;
+
+  /// Caption under EPUB in the third onboarding illustration
+  ///
+  /// In en, this message translates to:
+  /// **'eBook'**
+  String get onboardingFormatEbook;
+
+  /// Caption under MD in the third onboarding illustration
+  ///
+  /// In en, this message translates to:
+  /// **'Markdown'**
+  String get onboardingFormatMarkdown;
 
   /// Headline of the app-lock unlock screen
   ///

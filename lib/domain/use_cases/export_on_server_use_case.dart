@@ -41,6 +41,8 @@ class ExportOnServerUseCase {
     required ExportFormat format,
     String? author,
     PdfExportOptions pdfOptions = const PdfExportOptions(),
+    MarkdownExportOptions markdownOptions = const MarkdownExportOptions(),
+    DocxExportOptions docxOptions = const DocxExportOptions(),
     void Function(double progress)? onProgress,
   }) async {
     final watch = Stopwatch()..start();
@@ -108,7 +110,13 @@ class ExportOnServerUseCase {
       filename: '$title.pdf',
     );
     _log('uploaded document ${document.id}');
-    final options = _options(format, title: title, author: author);
+    final options = _options(
+      format,
+      title: title,
+      author: author,
+      markdown: markdownOptions,
+      docx: docxOptions,
+    );
     _log('starting API conversion ${_serverFormat(format)}');
     final started = await _api.startConversion(
       documentId: document.id,
@@ -199,6 +207,8 @@ class ExportOnServerUseCase {
     ExportFormat format, {
     required String title,
     String? author,
+    MarkdownExportOptions markdown = const MarkdownExportOptions(),
+    DocxExportOptions docx = const DocxExportOptions(),
   }) {
     final trimmedAuthor = author?.trim();
     return switch (format) {
@@ -215,6 +225,8 @@ class ExportOnServerUseCase {
         'title': title,
         'language': 'en',
         'page_breaks': true,
+        // Server default false: one normal reading flow.
+        'preserve_layout': docx.preserveLayout,
         if (trimmedAuthor != null && trimmedAuthor.isNotEmpty)
           'author': trimmedAuthor,
       },
@@ -222,6 +234,12 @@ class ExportOnServerUseCase {
         'ocr_mode': 'auto',
         'pdf_mode': 'searchable',
         'languages': ['en'],
+      },
+      // recognize_formulas is accepted only for markdown_zip.
+      ExportFormat.markdown => {
+        'ocr_mode': 'auto',
+        'languages': ['en'],
+        'recognize_formulas': markdown.recognizeFormulas,
       },
       _ => {
         'ocr_mode': 'auto',
